@@ -3,9 +3,9 @@ requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "template-python"
+name = "autopcet"
 version = "0.0.0"
-description = "A modern, typed Python package template."
+description = "Automated proton-coupled electron transfer (PCET) tooling."
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
   { name = "Louie Slocombe", email = "louies@hotmail.co.uk" },
 ]
-keywords = ["python", "template"]
+keywords = ["chemistry", "electron-transfer", "pcet", "proton-transfer"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Operating System :: OS Independent",
@@ -26,12 +26,12 @@ dependencies = [
 ]
 
 [project.scripts]
-template-python = "template_python.__main__:main"
+autopcet = "autopcet.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/LouieSlocombe/template_python"
-Issues = "https://github.com/LouieSlocombe/template_python/issues"
-Repository = "https://github.com/LouieSlocombe/template_python"
+Homepage = "https://github.com/LouieSlocombe/autopcet"
+Issues = "https://github.com/LouieSlocombe/autopcet/issues"
+Repository = "https://github.com/LouieSlocombe/autopcet"
 
 [dependency-groups]
 dev = [
@@ -46,19 +46,19 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["template_python", "template_python.*"]
+include = ["autopcet", "autopcet.*"]
 
 [tool.setuptools.package-data]
-template_python = ["py.typed"]
+autopcet = ["py.typed"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-config --strict-markers --cov=template_python --cov-report=term-missing"
+addopts = "-ra --strict-config --strict-markers --cov=autopcet --cov-report=term-missing"
 testpaths = ["tests"]
 filterwarnings = ["error"]
 
 [tool.coverage.run]
 branch = true
-source = ["template_python"]
+source = ["autopcet"]
 
 [tool.coverage.report]
 fail_under = 100
@@ -76,7 +76,7 @@ target-version = "py314"
 select = ["B", "E4", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
 
 [tool.mypy]
-files = ["template_python", "tests"]
+files = ["autopcet", "tests"]
 python_version = "3.14"
 pretty = true
 show_error_codes = true

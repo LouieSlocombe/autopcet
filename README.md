@@ -1,11 +1,12 @@
-# template-python
+# autopcet
 
-A compact starting point for a modern, typed Python package. It uses
-setuptools and `pyproject.toml` packaging, Ruff, mypy, pytest with full branch
-coverage, pre-commit, and GitHub Actions.
+Automated proton-coupled electron transfer (PCET) tooling, packaged as a
+modern, typed Python project. It uses setuptools and `pyproject.toml`
+packaging, Ruff, mypy, pytest with full branch coverage, pre-commit, and
+GitHub Actions.
 
-The example package exposes a tiny NumPy API and a command-line entry point so
-the template works end to end before you replace the sample code.
+The package currently ships a tiny placeholder NumPy API and a command-line
+entry point, so the quality gates run end to end before the real code lands.
 
 ## Requirements
 
@@ -27,17 +28,17 @@ python -m pip install --group dev -e .
 On Windows PowerShell, activate the environment with
 `.venv\Scripts\Activate.ps1` instead.
 
-Run the example:
+Run the command-line entry point:
 
 ```bash
-template-python Ada
-python -m template_python Ada
+autopcet Ada
+python -m autopcet Ada
 ```
 
 Or use the library:
 
 ```python
-from template_python import line, print_hello
+from autopcet import line, print_hello
 
 print_hello("Ada")
 samples = line(-1.0, 1.0, num=5)
@@ -76,7 +77,7 @@ If you prefer Conda, `build_tools/environment.yml` creates the base environment:
 
 ```bash
 conda env create -f build_tools/environment.yml
-conda activate template-python
+conda activate autopcet
 python -m pip install --group dev -e .
 ```
 
@@ -86,22 +87,18 @@ python -m pip install --group dev -e .
 .
 ├── .github/workflows/ci.yml   # automated quality and packaging checks
 ├── build_tools/               # optional Conda setup
-├── template_python/           # installable package
+├── autopcet/                  # installable package
 ├── tests/                     # behavior-focused tests
-└── pyproject.toml              # project metadata and tool configuration
+└── pyproject.toml             # project metadata and tool configuration
 ```
 
-## Use this template
+## Next steps
 
-After creating a repository from this template:
-
-1. Rename the `template-python` distribution, `template_python` import package,
-   and console command.
-2. Update the description, author, repository URLs, and license metadata.
-3. Choose and test the Python versions your project supports.
-4. Replace the example API and tests while keeping the quality gates green.
-5. Set a real release version and configure trusted publishing only when the
-   package is ready to publish.
+1. Replace the placeholder API and tests with the real PCET code, keeping the
+   quality gates green.
+2. Confirm the Python versions the project supports.
+3. Set a real release version and configure trusted publishing once the
+   package is ready.
 
 ## License
 

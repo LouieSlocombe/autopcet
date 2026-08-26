@@ -1,4 +1,4 @@
-"""Small example functions for the package template."""
+"""Small placeholder functions for the package."""
 
 import numpy as np
 import numpy.typing as npt

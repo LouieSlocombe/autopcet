@@ -1,4 +1,4 @@
-"""Command-line interface for the example package."""
+"""Command-line interface for autopcet."""
 
 import argparse
 from collections.abc import Sequence
