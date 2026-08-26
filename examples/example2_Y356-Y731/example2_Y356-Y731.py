@@ -1,20 +1,16 @@
+import colorsys
+
 import matplotlib.pyplot as plt
 import numpy as np
-from pyPCET import pyPCET
-from pyPCET.functions import bspline
-from pyPCET.units import kcal2eV
-from pyPCET.units import massH
-
-try:
-    from scipy.integrate import simps
-except ImportError:
-    from scipy.integrate import simpson as simps
-from scipy.signal import find_peaks
+from scipy.integrate import simpson
 from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
+
+from autopcet import fit_bspline, kcal2eV, massH, pcet
 
 # =========================================================================================
 # Define the thermodynamic parameters, taken from
-# Zhong et. al. J. Am. Chem. Soc. 2025, 147, 4459−4468
+# Zhong et. al. J. Am. Chem. Soc. 2025, 147, 4459-4468
 # =========================================================================================
 
 # R values sampled in calculations
@@ -33,8 +29,6 @@ NStates_to_show = 4  # how many states to plot/print
 # =========================================================================================
 
 # define rainbow color for plotting proton potentials
-import colorsys
-
 hues = np.linspace(0.0, 0.8, len(Rs))
 colors = [colorsys.hls_to_rgb(hue, 0.5, 0.85) for hue in hues]
 
@@ -55,15 +49,15 @@ for i, R in enumerate(Rs):
     E_prod_tmp *= kcal2eV
 
     # smooth the data by splining
-    ReacProtonPot_R.append(bspline(rp_tmp, E_reac_tmp))
-    ProdProtonPot_R.append(bspline(rp_tmp, E_prod_tmp))
+    ReacProtonPot_R.append(fit_bspline(rp_tmp, E_reac_tmp))
+    ProdProtonPot_R.append(fit_bspline(rp_tmp, E_prod_tmp))
 
 # plot the proton potentials
 fig = plt.figure(figsize=(8, 4))
 gs = fig.add_gridspec(ncols=2, wspace=0)
 ax1, ax2 = gs.subplots(sharex=True, sharey=True)
 
-for i, R in enumerate(Rs):
+for i in range(len(Rs)):
     ax1.plot(rp, ReacProtonPot_R[i](rp) / kcal2eV, '-', lw=2, color=colors[i])
     ax2.plot(rp, ProdProtonPot_R[i](rp) / kcal2eV, '-', lw=2, color=colors[i])
 
@@ -87,7 +81,7 @@ kH_R = np.zeros(len(Rs))
 
 for i, R in enumerate(Rs):
     print(f'Calculating... R = {R:.2f}A')
-    system = pyPCET(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
+    system = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
                     rmin=-rlim[i], rmax=rlim[i], NGridiPot=512)
 
     kH_R[i] = system.calculate(mass=massH, T=T)
@@ -114,7 +108,7 @@ for i, R in enumerate(Rs):
     ax1.plot(rp, ReacProtonPot_R[i](rp) + dEr, 'b', lw=2)
     scale_wfc = 0.06  # we will plot wave functions and energies in the same plot, this factor scales the wave function for better visualization
 
-    for ii, (Ei, wfci) in enumerate(zip(Evib_reactant[:NStates_to_show], wfc_reactant[:NStates_to_show])):
+    for ii, (Ei, wfci) in enumerate(zip(Evib_reactant[:NStates_to_show], wfc_reactant[:NStates_to_show], strict=True)):
         # change the sign of the vibrational wave functions for better visualization
         # make the largest amplitude positive
         sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
@@ -123,7 +117,7 @@ for i, R in enumerate(Rs):
 
     ax2.plot(rp, ProdProtonPot_R[i](rp) + dEp, 'r', lw=2)
 
-    for ii, (Ei, wfci) in enumerate(zip(Evib_product[:NStates_to_show], wfc_product[:NStates_to_show])):
+    for ii, (Ei, wfci) in enumerate(zip(Evib_product[:NStates_to_show], wfc_product[:NStates_to_show], strict=True)):
         sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
         ax2.plot(rp, Ei + dEp + scale_wfc * sign * wfci, 'r-', lw=1, alpha=(1 - 0.12 * ii))
         ax2.fill_between(rp, Ei + dEp + scale_wfc * sign * wfci, Ei + dEp, color='r', alpha=0.4)
@@ -144,11 +138,11 @@ for i, R in enumerate(Rs):
     # print a table for these quantities
     # write to a file
     with open(f'rate_constant_contribution_R{R:.2f}A.log', 'w') as outfp:
-        Pu = system.get_reactant_state_distributions()
+        Pu = system.get_reactant_state_distribution()
         Suv = system.get_proton_overlap_matrix()
         dGuv = system.get_reaction_free_energy_matrix()
         dGa_uv = system.get_activation_free_energy_matrix()
-        kuv = system.get_kinetic_contribution_matrix()
+        kuv = system.get_rate_contribution_matrix()
         k_tot = system.get_total_rate_constant()
         percentage_contribution = kuv / k_tot
 
@@ -202,14 +196,14 @@ params = curve_fit(poly4, R_tmp, np.log(PR_tmp))[0]
 PR = np.exp(poly4(R_fine_grid, *params))
 
 # re-normalize the distribution
-Z = simps(PR, R_fine_grid)
+Z = simpson(PR, R_fine_grid)
 PR /= Z
 R_eq = R_fine_grid[find_peaks(PR)[0]]
 
 # perform thermal average and print the final results
 Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
 
-ave_kH = simps(PR * kH_fine_grid, R_fine_grid)
+ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
 
 print()
 print(f'Dominant R for H = {Rmax_H[0]:.2f}A')

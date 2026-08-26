@@ -1,23 +1,26 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pyPCET import pyPCET
-from pyPCET.electrochemistry import EDL_model, Fermi_distribution
-from pyPCET.functions import fit_poly6, fit_poly8
-from pyPCET.units import kB, kcal2eV, A2Bohr, Ha2eV
-from pyPCET.units import massH, massD
-
-try:
-    from scipy.integrate import simps
-except ImportError:
-    from scipy.integrate import simpson as simps
-from scipy.signal import find_peaks
+from scipy.integrate import simpson
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
+
+from autopcet import (
+    Ha2eV,
+    fermi_distribution,
+    fit_poly6,
+    kB,
+    kcal2eV,
+    make_edl_model,
+    massD,
+    massH,
+    pcet,
+)
 
 # =========================================================================================
 # Define the thermodynamic parameters, taken from
-# Hutchison et. al. ACS Catat. 2024, 19, 14363–14372.
+# Hutchison et. al. ACS Catat. 2024, 19, 14363-14372.
 # =========================================================================================
 
 # Donor-Acceptor distance values sampled in calculations
@@ -30,7 +33,7 @@ Vel = 0.10  # Units: eV. Vel is not needed for KIE calculation.
 T = 300  # Units: K
 
 # rho_M is the electronic density of states for a pristine graphene slab from a periodic planewave DFT calculation.
-rho_M = np.genfromtxt('graphene_DOS_norm_gauss.csv', delimiter=',', skip_header=1)  # unit in N_{states} eV^-1 atom^–1
+rho_M = np.genfromtxt('graphene_DOS_norm_gauss.csv', delimiter=',', skip_header=1)  # unit in N_{states} eV^-1 atom^-1
 epsilons = rho_M[:, 0]  # Define the electronic energy levels that we will numerically integrate over
 rho_DOS = rho_M[:, 1]
 
@@ -64,7 +67,7 @@ colors = ['r', 'darkorange', 'g', 'b', 'purple']
 fig = plt.figure(figsize=(6, 3.5))
 
 for i, EvsSHE in enumerate(potentials_vs_SHE):
-    EDL_potential_drop = EDL_model(EvsSHE, dIHL, dOHL, eps_IHL, eps_st, eps_op, dipole, rho_water, m_water, c_ions,
+    EDL_potential_drop = make_edl_model(EvsSHE, dIHL, dOHL, eps_IHL, eps_st, eps_op, dipole, rho_water, m_water, c_ions,
                                    C_EDL, PZFCvsSHE, print_data=False)
     R = np.arange(0, 10, 0.1)
     plt.plot(R, EDL_potential_drop(R), '-', label=f'$E = {EvsSHE:.1f}$V', lw=1.5, color=colors[i])
@@ -109,7 +112,7 @@ ProdProtonPot_R = []
 
 # read proton potentials from .csv files
 # the proton potentials are directly from the published work
-for i, R in enumerate(Rs):
+for R in Rs:
     dat_react = pd.read_csv(f'proton_potentials/rDA_{R:.3f}_R.csv', sep=',', header=0, engine='python')
     dat_prod = pd.read_csv(f'proton_potentials/rDA_{R:.3f}_P.csv', sep=',', header=0, engine='python')
     rp_react_tmp = dat_react['x']
@@ -156,7 +159,7 @@ kHD_of_E = np.zeros((3, len(E_appl_list)))
 for n, E_appl in enumerate(E_appl_list):
 
     # Pre-generate the potential drop function
-    EDL_potential_drop = EDL_model(E_appl, dIHL, dOHL, eps_IHL, eps_st, eps_op, dipole, rho_water, m_water, c_ions,
+    EDL_potential_drop = make_edl_model(E_appl, dIHL, dOHL, eps_IHL, eps_st, eps_op, dipole, rho_water, m_water, c_ions,
                                    C_EDL, PZFCvsSHE, print_data=False)
 
     # Loop over proton-donor acceptor distances
@@ -174,9 +177,9 @@ for n, E_appl in enumerate(E_appl_list):
                 14.0 - 14.87)
 
         print(f'Calculating... R = {R:.3f}A')
-        systemH = pyPCET(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaGH, Lambda=Lambda, Vel=Vel,
+        systemH = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaGH, Lambda=Lambda, Vel=Vel,
                          NStates=NStates, rmin=-1.5, rmax=1.5)
-        systemD = pyPCET(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaGD, Lambda=Lambda, Vel=Vel,
+        systemD = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaGD, Lambda=Lambda, Vel=Vel,
                          NStates=NStates, rmin=-1.5, rmax=1.5)
 
         kH_epsilon = np.zeros(epsilons.shape[0])
@@ -200,15 +203,15 @@ for n, E_appl in enumerate(E_appl_list):
                 # write to a file
                 with open(f'rate_constant_contribution_R{R:.3f}A.log', 'w') as outfp:
                     # for H
-                    Pu = systemH.get_reactant_state_distributions()
+                    Pu = systemH.get_reactant_state_distribution()
                     Suv = systemH.get_proton_overlap_matrix()
                     dGuv = systemH.get_reaction_free_energy_matrix()
                     dGa_uv = systemH.get_activation_free_energy_matrix()
-                    kuv = systemH.get_kinetic_contribution_matrix()
+                    kuv = systemH.get_rate_contribution_matrix()
                     k_tot = systemH.get_total_rate_constant()
                     percentage_contribution = kuv / k_tot
 
-                    outfp.write(f'\nR = {R:.3f}A, epsilon = 0.005, E_appl = –0.66\n')
+                    outfp.write(f'\nR = {R:.3f}A, epsilon = 0.005, E_appl = -0.66\n')
                     outfp.write('\nH\n' + '=' * 125 + '\n')
                     outfp.write('(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n')
                     outfp.write('-' * 125 + '\n')
@@ -219,11 +222,11 @@ for n, E_appl in enumerate(E_appl_list):
                     outfp.write('=' * 125 + '\n\n')
 
                     # for D
-                    Pu = systemD.get_reactant_state_distributions()
+                    Pu = systemD.get_reactant_state_distribution()
                     Suv = systemD.get_proton_overlap_matrix()
                     dGuv = systemD.get_reaction_free_energy_matrix()
                     dGa_uv = systemD.get_activation_free_energy_matrix()
-                    kuv = systemD.get_kinetic_contribution_matrix()
+                    kuv = systemD.get_rate_contribution_matrix()
                     k_tot = systemD.get_total_rate_constant()
                     percentage_contribution = kuv / k_tot
 
@@ -236,11 +239,11 @@ for n, E_appl in enumerate(E_appl_list):
                                 f'({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n')
                     outfp.write('=' * 125 + '\n\n')
             # Multiply the DOS at a given epsilon by the Fermi-Dirac distribution at a given temperature
-            DOS[j] = rho_DOS[j] * Fermi_distribution(epsilon, T=T)
+            DOS[j] = rho_DOS[j] * fermi_distribution(epsilon, T=T)
 
         # Numerical integration over the electrode energy levels
-        kH_R[i] = simps(DOS * kH_epsilon, epsilons)
-        kD_R[i] = simps(DOS * kD_epsilon, epsilons)
+        kH_R[i] = simpson(DOS * kH_epsilon, epsilons)
+        kD_R[i] = simpson(DOS * kD_epsilon, epsilons)
 
     # Print PCET rate constants for H and D at each R to a file
     with open('kPCET_data.log', 'w') as outfp:
@@ -272,8 +275,8 @@ for n, E_appl in enumerate(E_appl_list):
     Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
     Rmax_D = R_fine_grid[find_peaks(PR * kD_fine_grid)[0]]
 
-    ave_kH_of_E_appl = simps(PR * kH_fine_grid, R_fine_grid)
-    ave_kD_of_E_appl = simps(PR * kD_fine_grid, R_fine_grid)
+    ave_kH_of_E_appl = simpson(PR * kH_fine_grid, R_fine_grid)
+    ave_kD_of_E_appl = simpson(PR * kD_fine_grid, R_fine_grid)
 
     print()
     print(f'Applied Potential= {E_appl:.2f} V vs SHE')

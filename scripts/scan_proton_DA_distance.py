@@ -1,6 +1,7 @@
+import os
+
 import numpy as np
 from ase.io import read
-import os
 
 # xyz files for the reactant and the product
 reac_xyz = "reac.xyz"
@@ -17,8 +18,7 @@ reac_multiplicity = 1
 prod_charge = 1
 prod_multiplicity = 2
 
-
-# change the level of theory or add empirical dispersion/implicit solvent as needed, 
+# change the level of theory or add empirical dispersion/implicit solvent as needed,
 heading = """%chk={state}.chk
 %nprocshared=24
 %mem=80GB
@@ -39,7 +39,7 @@ reac_struct = read(reac_xyz)
 prod_struct = read(prod_xyz)
 
 # define the range of proton donor-acceptor distance R
-R = np.linspace(2.4,2.8,9)
+R = np.linspace(2.4, 2.8, 9)
 
 for Ri in R:
     os.mkdir(f'R{Ri:.2f}A')
@@ -67,18 +67,19 @@ for Ri in R:
     outfp_prod_opt.write(heading.format(state="product", charge=prod_charge, multiplicity=prod_multiplicity))
 
     for i in range(len(reac_struct)):
-        outfp_reac_opt.write(f"{symbols[i]:2s}       {reac_pos[i,0]: 3.6f}    {reac_pos[i,1]: 3.6f}    {reac_pos[i,2]: 3.6f}\n")
-        outfp_prod_opt.write(f"{symbols[i]:2s}       {prod_pos[i,0]: 3.6f}    {prod_pos[i,1]: 3.6f}    {prod_pos[i,2]: 3.6f}\n")
+        outfp_reac_opt.write(
+            f"{symbols[i]:2s}       {reac_pos[i, 0]: 3.6f}    {reac_pos[i, 1]: 3.6f}    {reac_pos[i, 2]: 3.6f}\n")
+        outfp_prod_opt.write(
+            f"{symbols[i]:2s}       {prod_pos[i, 0]: 3.6f}    {prod_pos[i, 1]: 3.6f}    {prod_pos[i, 2]: 3.6f}\n")
 
     outfp_reac_opt.write("\n")
     outfp_prod_opt.write("\n")
 
-    outfp_reac_opt.write(ending_fix_bond.format(Hdonor=Hdonor+1, Hacceptor=Hacceptor+1, R=Ri))
-    outfp_prod_opt.write(ending_fix_bond.format(Hdonor=Hdonor+1, Hacceptor=Hacceptor+1, R=Ri))
-    
+    outfp_reac_opt.write(ending_fix_bond.format(Hdonor=Hdonor + 1, Hacceptor=Hacceptor + 1, R=Ri))
+    outfp_prod_opt.write(ending_fix_bond.format(Hdonor=Hdonor + 1, Hacceptor=Hacceptor + 1, R=Ri))
+
     outfp_reac_opt.write("\n")
     outfp_prod_opt.write("\n")
 
     outfp_reac_opt.close()
     outfp_prod_opt.close()
-

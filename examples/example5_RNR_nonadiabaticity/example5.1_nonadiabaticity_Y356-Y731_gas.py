@@ -1,9 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pyPCET import kappa_coupling
-from pyPCET.functions import bspline
-from pyPCET.units import kcal2eV, massH
 from scipy.interpolate import CubicSpline
+
+from autopcet import fit_bspline, kappa_coupling, kcal2eV, massH
 
 # double well potentials and electronic coupling read from a file
 # In this file, all energies are in kcal/mol
@@ -14,8 +13,8 @@ Vel *= kcal2eV
 
 # Spline the proton potential
 # this works better for smooth data
-ReacProtonPot = bspline(rp_read, E_Reac)
-ProdProtonPot = bspline(rp_read, E_Prod)
+ReacProtonPot = fit_bspline(rp_read, E_Reac)
+ProdProtonPot = fit_bspline(rp_read, E_Prod)
 Vel_rp = CubicSpline(rp_read, Vel)
 
 # define a finer rp grid

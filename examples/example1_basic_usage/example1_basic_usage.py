@@ -1,8 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pyPCET import pyPCET
-from pyPCET.functions import fit_poly8
-from pyPCET.units import massH, massD
+
+from autopcet import fit_poly8, massD, massH, pcet
 
 # define temperature, electronic coupling, reaction free energy, and reorganization energy
 T = 298
@@ -25,7 +24,7 @@ ReacProtonPot = fit_poly8(rp, E_Reac)
 ProdProtonPot = fit_poly8(rp, E_Prod)
 
 # set up system and do a calculation
-system = pyPCET(ReacProtonPot, ProdProtonPot, dG, Lambda, Vel=Vel)
+system = pcet(ReacProtonPot, ProdProtonPot, dG, Lambda, Vel=Vel)
 system.calculate(massH, T=T)
 
 # ===========================================================
@@ -53,7 +52,7 @@ ax1.plot(rp, ReacProtonPot(rp) + dEr, 'b', lw=2)
 ax1.plot(rp, ProdProtonPot(rp) + dEp, 'r', lw=2)
 scale_wfc = 0.06  # we will plot wave functions and energies in the same plot, this factor scales the wave function for better visualization
 
-for i, (Ei, wfci) in enumerate(zip(Evib_reactant[:NStates_to_show], wfc_reactant[:NStates_to_show])):
+for i, (Ei, wfci) in enumerate(zip(Evib_reactant[:NStates_to_show], wfc_reactant[:NStates_to_show], strict=True)):
     # change the sign of the vibrational wave functions for better visualization
     # make the largest amplitude positive
     sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
@@ -69,7 +68,7 @@ ax1.tick_params(labelsize=14)
 ax2.plot(rp, ReacProtonPot(rp) + dEr, 'b', lw=2)
 ax2.plot(rp, ProdProtonPot(rp) + dEp, 'r', lw=2)
 
-for i, (Ei, wfci) in enumerate(zip(Evib_product[:NStates_to_show], wfc_product[:NStates_to_show])):
+for i, (Ei, wfci) in enumerate(zip(Evib_product[:NStates_to_show], wfc_product[:NStates_to_show], strict=True)):
     sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
     ax2.plot(rp, Ei + dEp + scale_wfc * sign * wfci, 'r-', lw=1, alpha=(1 - 0.12 * i))
     ax2.fill_between(rp, Ei + dEp + scale_wfc * sign * wfci, Ei + dEp, color='r', alpha=0.4)
@@ -87,11 +86,11 @@ plt.show()
 # Analyze the contribution of each pair of vibronic states
 # ===========================================================
 
-Pu = system.get_reactant_state_distributions()
+Pu = system.get_reactant_state_distribution()
 Suv = system.get_proton_overlap_matrix()
 dGuv = system.get_reaction_free_energy_matrix()
 dGa_uv = system.get_activation_free_energy_matrix()
-kuv = system.get_kinetic_contribution_matrix()
+kuv = system.get_rate_contribution_matrix()
 k_tot = system.get_total_rate_constant()
 percentage_contribution = kuv / k_tot
 

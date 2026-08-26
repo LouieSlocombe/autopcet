@@ -1,16 +1,20 @@
 import numpy as np
 import pandas as pd
-from pyPCET import pyPCET
-from pyPCET.functions import fit_poly6, fit_poly8
-from pyPCET.units import kB, kcal2eV, A2Bohr, Ha2eV
-from pyPCET.units import massH, massD
-
-try:
-    from scipy.integrate import simps
-except ImportError:
-    from scipy.integrate import simpson as simps
-from scipy.signal import find_peaks
+from scipy.integrate import simpson
 from scipy.interpolate import interp1d
+from scipy.signal import find_peaks
+
+from autopcet import (
+    A2Bohr,
+    Ha2eV,
+    fit_poly6,
+    fit_poly8,
+    kB,
+    kcal2eV,
+    massD,
+    massH,
+    pcet,
+)
 
 # =========================================================================================
 # Define the thermodynamic parameters
@@ -42,7 +46,7 @@ rp = np.linspace(-1.0, 1.0, 256)
 
 # read proton potentials from .csv files
 # the proton potentials are digitized from Figure S39 of
-# Huynh et. al. ACS Cent. Sci. 2017, 3, 372−380
+# Huynh et. al. ACS Cent. Sci. 2017, 3, 372-380
 for i, R in enumerate(Rs):
     dat_red = pd.read_csv(f'proton_potentials/Reduced_BIP_{R:.2f}A.csv', sep=', ', header=0, engine='python')
     dat_ox = pd.read_csv(f'proton_potentials/Oxidized_BIP_{R:.2f}A.csv', sep=', ', header=0, engine='python')
@@ -77,7 +81,7 @@ kD_R = np.zeros(len(Rs))
 
 for i, R in enumerate(Rs):
     print(f'Calculating... R = {R:.2f}A')
-    system = pyPCET(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
+    system = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
                     rmin=-1.0, rmax=1.0)
 
     kH_R[i] = system.calculate(mass=massH, T=T)
@@ -89,11 +93,11 @@ for i, R in enumerate(Rs):
 
     with open(f'rate_constant_contribution_R{R:.2f}A.log', 'w') as outfp:
         # for H
-        Pu = system.get_reactant_state_distributions()
+        Pu = system.get_reactant_state_distribution()
         Suv = system.get_proton_overlap_matrix()
         dGuv = system.get_reaction_free_energy_matrix()
         dGa_uv = system.get_activation_free_energy_matrix()
-        kuv = system.get_kinetic_contribution_matrix()
+        kuv = system.get_rate_contribution_matrix()
         k_tot = system.get_total_rate_constant()
         percentage_contribution = kuv / k_tot
 
@@ -109,11 +113,11 @@ for i, R in enumerate(Rs):
 
         # for D
         system.calculate(mass=massD, T=T)
-        Pu = system.get_reactant_state_distributions()
+        Pu = system.get_reactant_state_distribution()
         Suv = system.get_proton_overlap_matrix()
         dGuv = system.get_reaction_free_energy_matrix()
         dGa_uv = system.get_activation_free_energy_matrix()
-        kuv = system.get_kinetic_contribution_matrix()
+        kuv = system.get_rate_contribution_matrix()
         k_tot = system.get_total_rate_constant()
         percentage_contribution = kuv / k_tot
 
@@ -158,15 +162,15 @@ def PR(R, R0, keff, T):
 
 
 PR = PR(R_fine_grid, R_eq, keff, T)
-Z = simps(PR, R_fine_grid)
+Z = simpson(PR, R_fine_grid)
 PR /= Z
 
 # perform thermal average and print the final results
 Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
 Rmax_D = R_fine_grid[find_peaks(PR * kD_fine_grid)[0]]
 
-ave_kH = simps(PR * kH_fine_grid, R_fine_grid)
-ave_kD = simps(PR * kD_fine_grid, R_fine_grid)
+ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
+ave_kD = simpson(PR * kD_fine_grid, R_fine_grid)
 
 print()
 print(f'Dominant R for H = {Rmax_H[0]:.2f}A')

@@ -163,7 +163,7 @@ def fit_poly8(xdata, ydata):
     return poly8_fit
 
 
-def fit_bspline(xdata, ydata, s=5e-3):
+def fit_bspline(xdata, ydata, s=1e-4):
     tck = splrep(xdata, ydata, s=s)
     xdata_tmp = np.linspace(np.min(xdata), np.max(xdata), 500)
 
