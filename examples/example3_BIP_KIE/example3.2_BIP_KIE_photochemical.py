@@ -5,6 +5,7 @@ from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
 from autopcet import (
+    PCET,
     A2Bohr,
     Ha2eV,
     fit_poly6,
@@ -13,7 +14,6 @@ from autopcet import (
     kcal2eV,
     massD,
     massH,
-    pcet,
 )
 
 # =========================================================================================
@@ -26,7 +26,9 @@ Rs = np.arange(2.37, 2.92, 0.05)
 
 DeltaG = -5.0 * kcal2eV
 Lambda = 21.4 * kcal2eV
-Vel = 1 * kcal2eV  # Vel is not needed for KIE calculation, use a default value of 1 kcal/mol
+Vel = (
+    1 * kcal2eV
+)  # Vel is not needed for KIE calculation, use a default value of 1 kcal/mol
 T = 298.15
 
 NStates = 20  # how many states to include in rate constant calculation
@@ -48,12 +50,22 @@ rp = np.linspace(-1.0, 1.0, 256)
 # the proton potentials are digitized from Figure S39 of
 # Huynh et. al. ACS Cent. Sci. 2017, 3, 372-380
 for i, R in enumerate(Rs):
-    dat_red = pd.read_csv(f'proton_potentials/Reduced_BIP_{R:.2f}A.csv', sep=', ', header=0, engine='python')
-    dat_ox = pd.read_csv(f'proton_potentials/Oxidized_BIP_{R:.2f}A.csv', sep=', ', header=0, engine='python')
-    rp_red_tmp = dat_red['x']
-    E_red_tmp = dat_red['y']
-    rp_ox_tmp = dat_ox['x']
-    E_ox_tmp = dat_ox['y']
+    dat_red = pd.read_csv(
+        f"proton_potentials/Reduced_BIP_{R:.2f}A.csv",
+        sep=", ",
+        header=0,
+        engine="python",
+    )
+    dat_ox = pd.read_csv(
+        f"proton_potentials/Oxidized_BIP_{R:.2f}A.csv",
+        sep=", ",
+        header=0,
+        engine="python",
+    )
+    rp_red_tmp = dat_red["x"]
+    E_red_tmp = dat_red["y"]
+    rp_ox_tmp = dat_ox["x"]
+    E_ox_tmp = dat_ox["y"]
 
     # the energy unit in the .csv files is kcal/mol, convert it to eV
     E_red_tmp *= kcal2eV
@@ -80,9 +92,17 @@ kH_R = np.zeros(len(Rs))
 kD_R = np.zeros(len(Rs))
 
 for i, R in enumerate(Rs):
-    print(f'Calculating... R = {R:.2f}A')
-    system = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
-                    rmin=-1.0, rmax=1.0)
+    print(f"Calculating... R = {R:.2f}A")
+    system = PCET(
+        ReacProtonPot_R[i],
+        ProdProtonPot_R[i],
+        DeltaG=DeltaG,
+        Lambda=Lambda,
+        Vel=Vel,
+        NStates=NStates,
+        rmin=-1.0,
+        rmax=1.0,
+    )
 
     kH_R[i] = system.calculate(mass=massH, T=T)
     kD_R[i] = system.calculate(mass=massD, T=T)
@@ -91,7 +111,7 @@ for i, R in enumerate(Rs):
     # They are the same as in the electrochemical case because the same proton potentials are used
     # Only print the contributions of the vibronic states
 
-    with open(f'rate_constant_contribution_R{R:.2f}A.log', 'w') as outfp:
+    with open(f"rate_constant_contribution_R{R:.2f}A.log", "w") as outfp:
         # for H
         Pu = system.get_reactant_state_distribution()
         Suv = system.get_proton_overlap_matrix()
@@ -101,15 +121,18 @@ for i, R in enumerate(Rs):
         k_tot = system.get_total_rate_constant()
         percentage_contribution = kuv / k_tot
 
-        outfp.write(f'\nR = {R:.2f}A, epsilon = 0, eta = 0\n')
-        outfp.write('\nH\n' + '=' * 125 + '\n')
-        outfp.write('(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n')
-        outfp.write('-' * 125 + '\n')
+        outfp.write(f"\nR = {R:.2f}A, epsilon = 0, eta = 0\n")
+        outfp.write("\nH\n" + "=" * 125 + "\n")
+        outfp.write(
+            "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n"
+        )
+        outfp.write("-" * 125 + "\n")
         for u in range(NStates_to_show):
             for v in range(NStates_to_show):
                 outfp.write(
-                    f'({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n')
-        outfp.write('=' * 125 + '\n\n')
+                    f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n"
+                )
+        outfp.write("=" * 125 + "\n\n")
 
         # for D
         system.calculate(mass=massD, T=T)
@@ -121,20 +144,23 @@ for i, R in enumerate(Rs):
         k_tot = system.get_total_rate_constant()
         percentage_contribution = kuv / k_tot
 
-        outfp.write('\nD\n' + '=' * 125 + '\n')
-        outfp.write('(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n')
-        outfp.write('-' * 125 + '\n')
+        outfp.write("\nD\n" + "=" * 125 + "\n")
+        outfp.write(
+            "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n"
+        )
+        outfp.write("-" * 125 + "\n")
         for u in range(NStates_to_show):
             for v in range(NStates_to_show):
                 outfp.write(
-                    f'({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n')
-        outfp.write('=' * 125 + '\n\n')
+                    f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n"
+                )
+        outfp.write("=" * 125 + "\n\n")
 
 # Print PCET rate constants for H and D at each R to a file
-with open('kPCET_data.log', 'w') as outfp:
-    outfp.write('# R_PT/A\tk_H/s^-1\tk_D/s^-1\n')
+with open("kPCET_data.log", "w") as outfp:
+    outfp.write("# R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
     for i, R in enumerate(Rs):
-        outfp.write(f'{R:.2f}\t\t{kH_R[i]:.4e}\t{kD_R[i]:.4e}\n')
+        outfp.write(f"{R:.2f}\t\t{kH_R[i]:.4e}\t{kD_R[i]:.4e}\n")
 
 # =========================================================================================
 # Thermally average the PCET rate constant over R
@@ -150,15 +176,19 @@ R_fine_grid = np.linspace(2.0, 3.0, 200)
 
 # Different interpolation and extrapolation method has been tested, they give similar KIE
 # Interpolate log(k) then take the exponential
-kH_fine_grid = np.exp(interp1d(Rs, np.log(kH_R), kind='quadratic', fill_value='extrapolate')(R_fine_grid))
-kD_fine_grid = np.exp(interp1d(Rs, np.log(kD_R), kind='quadratic', fill_value='extrapolate')(R_fine_grid))
+kH_fine_grid = np.exp(
+    interp1d(Rs, np.log(kH_R), kind="quadratic", fill_value="extrapolate")(R_fine_grid)
+)
+kD_fine_grid = np.exp(
+    interp1d(Rs, np.log(kD_R), kind="quadratic", fill_value="extrapolate")(R_fine_grid)
+)
 
 
 # calculate P(R)
 def PR(R, R0, keff, T):
     ER = 0.5 * keff * (R - R0) * (R - R0) * A2Bohr * A2Bohr * Ha2eV
     kBT = kB * T
-    return (np.exp(-ER / kBT))
+    return np.exp(-ER / kBT)
 
 
 PR = PR(R_fine_grid, R_eq, keff, T)
@@ -173,8 +203,8 @@ ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
 ave_kD = simpson(PR * kD_fine_grid, R_fine_grid)
 
 print()
-print(f'Dominant R for H = {Rmax_H[0]:.2f}A')
-print(f'Dominant R for D = {Rmax_D[0]:.2f}A')
-print(f'k_H_tot = {ave_kH:.4e} s^-1')
-print(f'k_D_tot = {ave_kD:.4e} s^-1')
-print(f'KIE = {ave_kH / ave_kD:.2f}')
+print(f"Dominant R for H = {Rmax_H[0]:.2f}A")
+print(f"Dominant R for D = {Rmax_D[0]:.2f}A")
+print(f"k_H_tot = {ave_kH:.4e} s^-1")
+print(f"k_D_tot = {ave_kD:.4e} s^-1")
+print(f"KIE = {ave_kH / ave_kD:.2f}")

@@ -1,9 +1,12 @@
 """Tests for the electric double layer model and Fermi distribution (example 4)."""
 
+from typing import Any
+
 import numpy as np
 import pytest
 
 from autopcet import fermi_distribution, make_edl_model
+from autopcet.autopcet import _ScalarArrayFunction
 
 # Electrode/electrolyte parameters for CoTPP on graphene from example 4.
 E_VS_SHE = -0.6
@@ -19,8 +22,8 @@ C_EDL = 15  # microFarad/cm^2
 PZFC_VS_SHE = 0.04  # V
 
 
-def make_model(**overrides: object):
-    kwargs: dict = {
+def make_model(**overrides: Any) -> _ScalarArrayFunction:
+    kwargs: dict[str, Any] = {
         "EvsSHE": E_VS_SHE,
         "dIHL": D_IHL,
         "dOHL": D_OHL,
@@ -73,11 +76,12 @@ def test_potential_drop_decays_into_the_bulk() -> None:
     assert drop(60.0) == pytest.approx(0.0, abs=1e-4)
 
 
-def test_unsupported_position_type_returns_none() -> None:
-    """Inputs that are neither numbers nor arrays return None."""
+def test_unsupported_position_type_is_rejected() -> None:
+    """Inputs that are neither numbers nor arrays raise TypeError."""
     drop = make_model()
 
-    assert drop("nowhere") is None
+    with pytest.raises(TypeError, match="R"):
+        drop("nowhere")  # type: ignore[call-overload]
 
 
 def test_numeric_dipole_and_kirkwood_options() -> None:

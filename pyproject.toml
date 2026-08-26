@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autopcet"
-version = "0.0.0"
+version = "0.1.0"
 description = "Automated proton-coupled electron transfer (PCET) tooling."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -22,11 +22,19 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "numba>=0.67",
   "numpy>=2.5.2",
+  "scipy>=1.14",
 ]
 
-[project.scripts]
-autopcet = "autopcet.__main__:main"
+[project.optional-dependencies]
+examples = [
+  "matplotlib>=3.10",
+  "pandas>=2.2",
+]
+scripts = [
+  "ase>=3.23",
+]
 
 [project.urls]
 Homepage = "https://github.com/LouieSlocombe/autopcet"
@@ -64,9 +72,10 @@ source = ["autopcet"]
 fail_under = 96
 show_missing = true
 exclude_also = [
-  "if __name__ == .__main__.:",
   # numba-compiled functions cannot be traced by coverage.py
   "@jit",
+  # typing-only stub bodies of @overload and Protocol declarations
+  '^\s*\.\.\.$',
 ]
 
 [tool.ruff]
@@ -84,3 +93,7 @@ pretty = true
 show_error_codes = true
 strict = true
 warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["numba.*", "scipy.*"]
+ignore_missing_imports = true

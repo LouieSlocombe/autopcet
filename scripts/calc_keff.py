@@ -1,4 +1,7 @@
-from optparse import OptionParser
+"""Compute the effective proton donor-acceptor force constant, reduced mass, and
+frequency from a Gaussian frequency calculation run with HPmodes."""
+
+import argparse
 
 import numpy as np
 from ase.io import read, write
@@ -16,20 +19,19 @@ def read_Gaussian_freq_job(xyzfile, logfile):
     if nresidue != 0:
         ngroup += 1
 
-    logfp = open(logfile)
-    lines = logfp.readlines()
+    with open(logfile) as logfp:
+        lines = logfp.readlines()
+
     index_optimized_struct = 0
     index_freq_output = 0
     for i, line in enumerate(lines):
-        if 'Standard orientation' in line:
+        if "Standard orientation" in line:
             index_optimized_struct = i
-        if line.startswith(' Harmonic frequencies'):
+        if line.startswith(" Harmonic frequencies"):
             # when HPmodes is set, the high precision normal modes are printed first
             # we only need the line index that corresponds to the high precision outputs
             index_freq_output = i
             break
-
-    # print(index_optimized_struct, index_freq_output)
 
     # read optimized structure
     # update the coordinate in the Atoms object if they are not the same as the optimized structure
@@ -40,7 +42,7 @@ def read_Gaussian_freq_job(xyzfile, logfile):
         new_poses[j] = [float(dat) for dat in lines[i + j].split()[3:]]
     atoms.set_positions(new_poses)
 
-    write('optimized_geometry.xyz', atoms)
+    write("optimized_geometry.xyz", atoms)
 
     freqs = np.zeros(nDOFvib)
     reduced_masses = np.zeros(nDOFvib)
@@ -49,18 +51,18 @@ def read_Gaussian_freq_job(xyzfile, logfile):
 
     # start reading normal modes
     i = index_freq_output + 4
-    for ig in range(ngroup):
+    for _ in range(ngroup):
         mode_indices = [int(dat) - 1 for dat in lines[i].split()]
         freqs[mode_indices] = [float(dat) for dat in lines[i + 2].split()[2:]]
         reduced_masses[mode_indices] = [float(dat) for dat in lines[i + 3].split()[3:]]
         force_constants[mode_indices] = [float(dat) for dat in lines[i + 4].split()[3:]]
 
         for j in range(3 * natoms):
-            normal_modes[mode_indices, j] = [float(dat) for dat in lines[i + 7 + j].split()[3:]]
+            normal_modes[mode_indices, j] = [
+                float(dat) for dat in lines[i + 7 + j].split()[3:]
+            ]
 
-        i += (7 + natoms * 3)
-
-    logfp.close()
+        i += 7 + natoms * 3
 
     # In Gaussian output, the frequencies are in cm-1, reduced masses in amu
     # force constants in mDyne/A
@@ -69,7 +71,9 @@ def read_Gaussian_freq_job(xyzfile, logfile):
     return atoms, freqs, reduced_masses, force_constants, normal_modes
 
 
-def calc_keff(atoms, donor_index, acceptor_index, reduced_masses, force_constants, normal_modes):
+def calc_keff(
+    atoms, donor_index, acceptor_index, reduced_masses, force_constants, normal_modes
+):
     # input force constants in mDyne/A, which is unit used in Gassuain outputs
 
     # convert the unit of force constant from mDyne/A to au
@@ -78,11 +82,6 @@ def calc_keff(atoms, donor_index, acceptor_index, reduced_masses, force_constant
     force_constants /= scale
 
     poses = atoms.get_positions()
-    masses = atoms.get_masses()
-
-    # M = np.array([masses,masses,masses])
-    # diag_sqrt_mass = np.diag(np.sqrt(M.transpose().reshape(3*len(atoms))))
-    # normal_modes = np.matmul(normal_modes, diag_sqrt_mass)
 
     # calculate the unit vector connect the proton donor and acceptor
     eDA = poses[acceptor_index] - poses[donor_index]
@@ -92,10 +91,9 @@ def calc_keff(atoms, donor_index, acceptor_index, reduced_masses, force_constant
     weights = np.zeros(nDOFvib)
 
     for imode in range(nDOFvib):
-        lAi = normal_modes[imode, acceptor_index * 3:acceptor_index * 3 + 3]
-        lDi = normal_modes[imode, donor_index * 3:donor_index * 3 + 3]
+        lAi = normal_modes[imode, acceptor_index * 3 : acceptor_index * 3 + 3]
+        lDi = normal_modes[imode, donor_index * 3 : donor_index * 3 + 3]
         weights[imode] = np.inner(eDA, lAi - lDi)
-        # weights[imode] = np.inner(eDA, lAi/np.sqrt(masses[acceptor_index]) - lDi/np.sqrt(masses[donor_index]))
 
     effective_force_constant = 1 / (np.sum(weights * weights / force_constants))
     effective_reduced_mass = 1 / (np.sum(weights * weights / reduced_masses))
@@ -104,31 +102,67 @@ def calc_keff(atoms, donor_index, acceptor_index, reduced_masses, force_constant
     Da2au = 1822.888486209
     au2s = 2.418884326e-17
     c = 29979245800  # in cm/s
-    effective_frequency = np.sqrt(effective_force_constant / effective_reduced_mass / Da2au) / au2s / c / 2 / np.pi
+    effective_frequency = (
+        np.sqrt(effective_force_constant / effective_reduced_mass / Da2au)
+        / au2s
+        / c
+        / 2
+        / np.pi
+    )
 
     return effective_force_constant, effective_reduced_mass, effective_frequency
 
 
-parser = OptionParser()
+def build_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--xyz",
+        dest="xyzfile",
+        required=True,
+        help="select an xyz file for the molecule",
+    )
+    parser.add_argument(
+        "--log",
+        dest="logfile",
+        required=True,
+        help="select the log file of a Gaussian frequency calculation",
+    )
+    parser.add_argument(
+        "-D",
+        type=int,
+        dest="donor_index",
+        required=True,
+        help="atomic index (start from 0) of the proton donor",
+    )
+    parser.add_argument(
+        "-A",
+        type=int,
+        dest="acceptor_index",
+        required=True,
+        help="atomic index (start from 0) of the proton acceptor",
+    )
+    return parser
 
-parser.add_option("--xyz", type="string", dest="xyzfile", help="select an xyz file for the molecule")
-parser.add_option("--log", type="string", dest="logfile",
-                  help="select the log file of a Gaussian frequency calculation")
-parser.add_option("-D", type="int", dest="donor_index", help="atomic index (start from 0) of the proton donor")
-parser.add_option("-A", type="int", dest="acceptor_index", help="atomic index (start from 0) of the proton acceptor")
 
-(options, args) = parser.parse_args()
+def main():
+    options = build_parser().parse_args()
 
-xyzfile = options.xyzfile
-logfile = options.logfile
-donor_index = options.donor_index
-acceptor_index = options.acceptor_index
+    atoms, _freqs, reduced_masses, force_constants, normal_modes = (
+        read_Gaussian_freq_job(options.xyzfile, options.logfile)
+    )
+    effective_force_constant, effective_reduced_mass, effective_frequency = calc_keff(
+        atoms,
+        options.donor_index,
+        options.acceptor_index,
+        reduced_masses,
+        force_constants,
+        normal_modes,
+    )
 
-atoms, freq, reduced_masses, force_constants, normal_modes = read_Gaussian_freq_job(xyzfile, logfile)
-effective_force_constant, effective_reduced_mass, effective_frequency = calc_keff(atoms, donor_index, acceptor_index,
-                                                                                  reduced_masses, force_constants,
-                                                                                  normal_modes)
+    print(f"Effective force constant in a.u.: {effective_force_constant:.4f}")
+    print(f"Effective reduced mass in amu: {effective_reduced_mass:.3f}")
+    print(f"Effective frequency in cm-1: {effective_frequency: .2f}")
 
-print(f"Effective force constant in a.u.: {effective_force_constant:.4f}")
-print(f"Effective reduced mass in amu: {effective_reduced_mass:.3f}")
-print(f"Effective frequency in cm-1: {effective_frequency: .2f}")
+
+if __name__ == "__main__":
+    main()

@@ -8,10 +8,10 @@ from scipy.integrate import simpson
 from autopcet import (
     A2Bohr,
     Bohr2A,
+    Debye2au,
     Ha2eV,
     Ha2kcal,
     au2s,
-    copy_function,
     eV2Ha,
     eV2kcal,
     eV2wn,
@@ -138,6 +138,9 @@ def test_is_number_and_is_array() -> None:
     """The type helpers accept scalars/sequences and reject other types."""
     assert is_number(3)
     assert is_number(3.14)
+    assert is_number(np.float32(3.14))
+    assert is_number(np.int64(3))
+    assert not is_number(True)
     assert not is_number("3.14")
     assert not is_number([3.14])
 
@@ -146,20 +149,6 @@ def test_is_number_and_is_array() -> None:
     assert is_array(np.array([1.0, 2.0]))
     assert not is_array(3.14)
     assert not is_array("abc")
-
-
-def test_copy_function_preserves_behavior_and_metadata() -> None:
-    """copy_function returns an independent but equivalent function."""
-
-    def greet(name: str = "World", *, punctuation: str = "!") -> str:
-        return f"Hello, {name}{punctuation}"
-
-    copied = copy_function(greet)
-
-    assert copied is not greet
-    assert copied.__name__ == greet.__name__
-    assert copied() == "Hello, World!"
-    assert copied("Ada", punctuation="?") == "Hello, Ada?"
 
 
 def test_physical_constants_have_expected_values() -> None:
@@ -172,6 +161,7 @@ def test_physical_constants_have_expected_values() -> None:
     assert au2s == pytest.approx(2.418884e-17, rel=1e-6)
     assert massH == pytest.approx(1836.15267, rel=1e-6)
     assert massD / massH == pytest.approx(2.0, rel=1e-2)
+    assert Debye2au == pytest.approx(0.3934303, rel=1e-6)
 
 
 def test_unit_conversions_round_trip() -> None:

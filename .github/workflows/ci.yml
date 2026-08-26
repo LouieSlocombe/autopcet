@@ -51,5 +51,6 @@ jobs:
 
       - name: Smoke test the wheel
         run: |
-          python -m pip install --force-reinstall --no-deps dist/*.whl
-          python -m autopcet Codex
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/python -m pip install dist/*.whl
+          /tmp/smoke/bin/python -c "import autopcet; print(autopcet.__version__)"

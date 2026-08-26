@@ -1,17 +1,19 @@
 """Tests for the nonadiabaticity analysis used in example 5."""
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 from scipy.integrate import simpson
 
 from autopcet import (
+    KappaCoupling,
     hbar,
     inverted_morse,
-    kappa_coupling,
     massD,
     massH,
     morse,
 )
+from autopcet.autopcet import _find_first_crossing
 
 # A symmetric model double well in the style of the RNR Y356-Y731 system of
 # example 5: two Morse diabats crossing at rp = 0, on a 512-point grid.
@@ -27,8 +29,8 @@ E_REAC = morse(RP_GRID, -R0, DE, BETA)
 E_PROD = inverted_morse(RP_GRID, R0, DE, BETA)
 
 
-def make_system(vel: float | np.ndarray = VEL) -> kappa_coupling:
-    return kappa_coupling(RP_GRID, E_REAC, E_PROD, vel)
+def make_system(vel: float | npt.NDArray[np.float64] = VEL) -> KappaCoupling:
+    return KappaCoupling(RP_GRID, E_REAC, E_PROD, vel)
 
 
 def test_crossing_point_of_a_symmetric_double_well() -> None:
@@ -117,21 +119,19 @@ def test_constant_electronic_coupling_array_matches_scalar() -> None:
     assert system_array.kappa == pytest.approx(system_scalar.kappa)
 
 
-def test_low_overlap_threshold_prints_a_warning(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_low_overlap_threshold_emits_a_warning() -> None:
     """An unattainable overlap threshold triggers the diagnostic warning."""
     system = make_system()
-    system.calculate(massH, overlap_thresh=1.01)
 
-    assert "WARNING" in capsys.readouterr().out
+    with pytest.warns(UserWarning, match="maximum overlap"):
+        system.calculate(massH, overlap_thresh=1.01)
 
 
 def test_tunneling_above_the_barrier_is_rejected() -> None:
     """A barrier below the proton ZPE raises RuntimeError."""
     shallow_reac = morse(RP_GRID, -0.2, DE, 0.5)
     shallow_prod = inverted_morse(RP_GRID, 0.2, DE, 0.5)
-    system = kappa_coupling(RP_GRID, shallow_reac, shallow_prod, VEL)
+    system = KappaCoupling(RP_GRID, shallow_reac, shallow_prod, VEL)
 
     with pytest.raises(RuntimeError, match="tunneling energy"):
         system.calculate(massH)
@@ -140,10 +140,24 @@ def test_tunneling_above_the_barrier_is_rejected() -> None:
 def test_invalid_inputs_are_rejected() -> None:
     """Constructor type and shape validation raises informative errors."""
     with pytest.raises(TypeError, match="1D arrays"):
-        kappa_coupling(0.5, E_REAC, E_PROD, VEL)
+        KappaCoupling(0.5, E_REAC, E_PROD, VEL)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Vel"):
-        kappa_coupling(RP_GRID, E_REAC, E_PROD, "strong")
+        KappaCoupling(RP_GRID, E_REAC, E_PROD, "strong")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="same dimension"):
-        kappa_coupling(RP_GRID, E_REAC[:-1], E_PROD, VEL)
+        KappaCoupling(RP_GRID, E_REAC[:-1], E_PROD, VEL)
     with pytest.raises(ValueError, match="power of 2"):
-        kappa_coupling(RP_GRID[:500], E_REAC[:500], E_PROD[:500], VEL)
+        KappaCoupling(RP_GRID[:500], E_REAC[:500], E_PROD[:500], VEL)
+
+
+def test_out_of_range_state_indices_are_rejected() -> None:
+    """State indices outside 0 <= mu, nu < NStates raise ValueError."""
+    with pytest.raises(ValueError, match="mu"):
+        KappaCoupling(RP_GRID, E_REAC, E_PROD, VEL, NStates=5, mu=5)
+    with pytest.raises(ValueError, match="nu"):
+        KappaCoupling(RP_GRID, E_REAC, E_PROD, VEL, NStates=5, nu=-1)
+
+
+def test_non_crossing_potentials_are_rejected() -> None:
+    """A curve without a sign change has no crossing to locate."""
+    with pytest.raises(RuntimeError, match="do not cross"):
+        _find_first_crossing(np.ones(8), np.linspace(0.0, 1.0, 8))

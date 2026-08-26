@@ -1,412 +1,289 @@
-import math
-from optparse import OptionParser
+"""Align reactant and product xyz structures so the proton donor-acceptor axis
+lies along Z with its midpoint at the origin, rotate the product about Z to
+minimize the RMSD to the reactant, and write the averaged structure.
 
-import numpy
+All donor/acceptor indices are 1-based, as printed by most quantum chemistry
+programs.
+"""
+
+import argparse
+import math
+import os
+
+import numpy as np
 from scipy.optimize import minimize_scalar
 
-# Conversions
-radians = math.pi / 180
 
-parser = OptionParser()
+def build_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "-r",
+        "--reactant-xyz",
+        dest="rea",
+        required=True,
+        help="select xyz-file with the reactant structure",
+    )
+    parser.add_argument(
+        "-p",
+        "--product-xyz",
+        dest="pro",
+        required=True,
+        help="select xyz-file with the product structure",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-xyz",
+        dest="output_name",
+        default="AVERAGE_STRUCTURE.xyz",
+        help="select the name of xyz-file with the average structure "
+        "(default: %(default)s)",
+    )
+    parser.add_argument(
+        "--r-donor",
+        type=int,
+        dest="rdo",
+        required=True,
+        help="donor atom index in the reactant structure",
+    )
+    parser.add_argument(
+        "--r-acceptor",
+        type=int,
+        dest="rac",
+        required=True,
+        help="acceptor atom index in the reactant structure",
+    )
+    parser.add_argument(
+        "--p-donor",
+        type=int,
+        dest="pdo",
+        required=True,
+        help="donor atom index in the product structure",
+    )
+    parser.add_argument(
+        "--p-acceptor",
+        type=int,
+        dest="pac",
+        required=True,
+        help="acceptor atom index in the product structure",
+    )
+    return parser
 
-parser.add_option("-r", "--reactant-xyz", type="string", dest="rea",
-                  help="select xyz-file with the reactant structure")
-parser.add_option("-p", "--product-xyz", type="string", dest="pro",
-                  help="select xyz-file with the product structure")
 
-parser.add_option("-o", "--output-xyz", type="string", dest="output_name",
-                  default="AVERAGE_STRUCTURE.xyz",
-                  help="select the name of xyz-file with the average structure (default: %default)")
+def read_xyz(path):
+    """Read an xyz file into (natom, symbols, positions with shape (3, natom))."""
+    with open(path) as fp:
+        lines = fp.readlines()
+    natom = int(lines[0])
+    symbols = []
+    pos = np.zeros((3, natom))
+    for i in range(natom):
+        xyz = lines[i + 2].split()
+        symbols.append(xyz[0])
+        pos[0][i] = float(xyz[1])
+        pos[1][i] = float(xyz[2])
+        pos[2][i] = float(xyz[3])
+    return natom, symbols, pos
 
-parser.add_option("--r-donor", type="int", dest="rdo",
-                  help="donor atom index in the reactant structure")
-parser.add_option("--r-acceptor", type="int", dest="rac",
-                  help="acceptor atom index in the reactant structure")
 
-parser.add_option("--p-donor", type="int", dest="pdo",
-                  help="donor atom index in the product structure")
-parser.add_option("--p-acceptor", type="int", dest="pac",
-                  help="acceptor atom index in the product structure")
+def write_xyz(path, symbols, pos, comment):
+    """Write positions with shape (3, natom) to an xyz file."""
+    natom = len(symbols)
+    with open(path, "w") as fp:
+        fp.write(str(natom) + "\n")
+        fp.write(comment + "\n")
+        for i in range(natom):
+            fp.write(
+                f"{symbols[i]:<2s} {pos[0][i]:15.8f} {pos[1][i]:15.8f} {pos[2][i]:15.8f}\n"
+            )
 
-(options, args) = parser.parse_args()
 
-# Donor [do] and Acceptor [ac] atom numbers
+def align_da_to_z(pos, donor, acceptor):
+    """Translate the donor to the origin and rotate the donor-acceptor axis onto Z.
 
-rdo = options.rdo
-rac = options.rac
+    Returns the rotated positions and the donor-acceptor distance.
+    """
+    natom = pos.shape[1]
 
-print("\nXYZ file with the reactant structure: " + options.rea)
-print("XYZ file with the product  structure: " + options.pro)
-
-try:
-    print("\nDonor index in the reactant structure: " + str(rdo))
-except:
-    rdo = int(input('\nEnter donor atom index in the reactant structure: '))
-
-try:
-    print("Acceptor index in the reactant structure: " + str(rac))
-except:
-    rac = int(input('Enter acceptor atom index in the reactant structure: '))
-
-pdo = options.pdo
-pac = options.pac
-
-try:
-    print("\nDonor index in the product structure: " + str(pdo))
-except:
-    pdo = int(input('\nEnter donor atom index in the product structure: '))
-
-try:
-    print("Acceptor index in the product structure: " + str(pac))
-except:
-    pac = int(input('Enter acceptor atom index in the product structure: '))
-
-print("\nOutput file with the averaged structure: " + options.output_name + "\n")
-
-# (index starts from 0 in python arrays)
-rdo = rdo - 1
-rac = rac - 1
-pdo = pdo - 1
-pac = pac - 1
-
-realist = options.rea.split(".")
-realist_length = len(realist)
-realist_range = realist_length - 1
-reabasename = ""
-for i in range(realist_range):
-    reabasename += realist[i]
-reanew = reabasename + "_DA_along_Z." + realist[realist_length - 1]
-
-prolist = options.pro.split(".")
-prolist_length = len(prolist)
-prolist_range = prolist_length - 1
-probasename = ""
-for i in range(prolist_range):
-    probasename += prolist[i]
-proali = probasename + "_DA_along_Z." + prolist[prolist_length - 1]
-prorot = probasename + "_DA_along_Z_aligned." + prolist[prolist_length - 1]
-
-### REACTANT System
-
-frea = open(options.rea)
-lines = frea.readlines()
-natom = int(lines[0])
-posr = numpy.zeros((3, natom))
-catom = []
-for i in range(natom):
-    xyz = lines[i + 2].split()
-    catom.append(xyz[0])
-    posr[0][i] = float(xyz[1])
-    posr[1][i] = float(xyz[2])
-    posr[2][i] = float(xyz[3])
-frea.close()
-
-posr_new = numpy.zeros((3, natom))
-vecar = numpy.zeros((3, 1))
-
-hr = [0.0, 0.0, 0.0]
-for i in range(3):
-    hr[i] = posr[i][rdo]
-
-for j in range(natom):
+    hr = [0.0, 0.0, 0.0]
     for i in range(3):
-        posr[i][j] = posr[i][j] - hr[i]
+        hr[i] = pos[i][donor]
 
-rmagr = math.sqrt(
-    (posr[0][rdo] - posr[0][rac]) ** 2 + (posr[1][rdo] - posr[1][rac]) ** 2 + (posr[2][rdo] - posr[2][rac]) ** 2)
-rda_distance = rmagr
+    for j in range(natom):
+        for i in range(3):
+            pos[i][j] = pos[i][j] - hr[i]
 
-vecr = [0.0, 0.0, 0.0]
-for i in range(3):
-    vecr[i] = (posr[i][rdo] - posr[i][rac]) / rmagr
+    rmag = math.sqrt(
+        (pos[0][donor] - pos[0][acceptor]) ** 2
+        + (pos[1][donor] - pos[1][acceptor]) ** 2
+        + (pos[2][donor] - pos[2][acceptor]) ** 2
+    )
 
-# angle of projection with x-axis
-costhrx = vecr[0] / math.sqrt(vecr[0] ** 2 + vecr[1] ** 2)
-sinthrx = vecr[1] / math.sqrt(vecr[0] ** 2 + vecr[1] ** 2)
-
-# angle with z axis
-costhrz = vecr[2]
-sinthrz = math.sin(math.acos(costhrz))
-
-rrx = numpy.zeros((3, 3))
-rrz = numpy.zeros((3, 3))
-
-rrx[0][0] = costhrx
-rrx[1][1] = costhrx
-rrx[0][1] = sinthrx
-rrx[1][0] = -sinthrx
-rrx[2][2] = 1.0e0
-
-rrz[0][0] = costhrz
-rrz[2][2] = costhrz
-rrz[0][2] = -sinthrz
-rrz[2][0] = sinthrz
-rrz[1][1] = 1.0e0
-
-posr_new = numpy.dot(numpy.dot(rrz, rrx), posr)
-
-# translate along the Z-axis so that a midpoint between donor and acceptor is at the origin
-shift = posr_new[2][rac] / 2
-for i in range(natom):
-    posr_new[2][i] = posr_new[2][i] - shift
-
-fr = open(reanew, "w")
-fr.write(str(natom) + "\n")
-fr.write(
-    "Reactant with D and A atoms along the Z-axis and midpoint at (0,0,0): DA distance %10.6f \u212B\n" % rda_distance)
-for i in range(natom):
-    s = "%-2s %15.8f %15.8f %15.8f\n" % (catom[i], posr_new[0][i], posr_new[1][i], posr_new[2][i])
-    fr.write(s)
-fr.close()
-
-### PRODUCT System
-fpro = open(options.pro)
-lines = fpro.readlines()
-natom = int(lines[0])
-posr = numpy.zeros((3, natom))
-catom = []
-for i in range(natom):
-    xyz = lines[i + 2].split()
-    catom.append(xyz[0])
-    posr[0][i] = float(xyz[1])
-    posr[1][i] = float(xyz[2])
-    posr[2][i] = float(xyz[3])
-fpro.close()
-
-posr_new = numpy.zeros((3, natom))
-vecar = numpy.zeros((3, 1))
-
-hr = [0.0, 0.0, 0.0]
-for i in range(3):
-    hr[i] = posr[i][pdo]
-
-for j in range(natom):
+    vec = [0.0, 0.0, 0.0]
     for i in range(3):
-        posr[i][j] = posr[i][j] - hr[i]
+        vec[i] = (pos[i][donor] - pos[i][acceptor]) / rmag
 
-rmagr = math.sqrt(
-    (posr[0][pdo] - posr[0][pac]) ** 2 + (posr[1][pdo] - posr[1][pac]) ** 2 + (posr[2][pdo] - posr[2][pac]) ** 2)
-pda_distance = rmagr
+    # angle of projection with x-axis
+    costhx = vec[0] / math.sqrt(vec[0] ** 2 + vec[1] ** 2)
+    sinthx = vec[1] / math.sqrt(vec[0] ** 2 + vec[1] ** 2)
 
-vecr = [0.0, 0.0, 0.0]
-for i in range(3):
-    vecr[i] = (posr[i][pdo] - posr[i][pac]) / rmagr
+    # angle with z axis
+    costhz = vec[2]
+    sinthz = math.sin(math.acos(costhz))
 
-# angle of projection with x-axis
-costhrx = vecr[0] / math.sqrt(vecr[0] ** 2 + vecr[1] ** 2)
-sinthrx = vecr[1] / math.sqrt(vecr[0] ** 2 + vecr[1] ** 2)
+    rrx = np.zeros((3, 3))
+    rrz = np.zeros((3, 3))
 
-# angle with z axis
-costhrz = vecr[2]
-sinthrz = math.sin(math.acos(costhrz))
+    rrx[0][0] = costhx
+    rrx[1][1] = costhx
+    rrx[0][1] = sinthx
+    rrx[1][0] = -sinthx
+    rrx[2][2] = 1.0e0
 
-rrx = numpy.zeros((3, 3))
-rrz = numpy.zeros((3, 3))
+    rrz[0][0] = costhz
+    rrz[2][2] = costhz
+    rrz[0][2] = -sinthz
+    rrz[2][0] = sinthz
+    rrz[1][1] = 1.0e0
 
-rrx[0][0] = costhrx
-rrx[1][1] = costhrx
-rrx[0][1] = sinthrx
-rrx[1][0] = -sinthrx
-rrx[2][2] = 1.0e0
-
-rrz[0][0] = costhrz
-rrz[2][2] = costhrz
-rrz[0][2] = -sinthrz
-rrz[2][0] = sinthrz
-rrz[1][1] = 1.0e0
-
-posr_new_pro = numpy.dot(numpy.dot(rrz, rrx), posr)
-
-# translate along the Z-axis so that a midpoint between donor and acceptor is at the origin
-shift = posr_new_pro[2][rac] / 2
-for i in range(natom):
-    posr_new_pro[2][i] = posr_new_pro[2][i] - shift
-
-fr = open(proali, "w")
-fr.write(str(natom) + "\n")
-fr.write(
-    "Product with D and A atoms along the Z-axis and midpoint at (0,0,0): DA distance %10.6f \u212B\n" % pda_distance)
-for i in range(natom):
-    s = "%-2s %15.8f %15.8f %15.8f\n" % (catom[i], posr_new_pro[0][i], posr_new_pro[1][i], posr_new_pro[2][i])
-    fr.write(s)
-fr.close()
-
-# Check if DA distances are the same in the reactant and product structures
-
-if abs(rda_distance - pda_distance) > 10 ** (-6):
-    print("\nThe donor acceptor distances in the reactant and product structures are different: " + str(
-        rda_distance) + " and " + str(pda_distance))
-    print("Donor and acceptor atoms are along the Z-axis and the midpoint is aligned)\n")
-    print("Average structure is labeled by the DA distance in the reactant configuration\n")
-
-da_distance = rda_distance
-
-###### Rotate around Z-axis then minimize RMSD ########
-
-# Reading in coordinates #
-rea_file = open(reanew, "r")
-pro_file = open(proali, "r")
-
-rea_lines = rea_file.readlines()
-pro_lines = pro_file.readlines()
-
-natom = int(rea_lines[0])
-# natom = len(rea_lines)
-
-rea = numpy.zeros((3, natom))
-pro = numpy.zeros((3, natom))
-catom = []
-pro_new = numpy.zeros((3, natom))
-for i in range(natom):
-    xyz = rea_lines[i + 2].split()
-    catom.append(xyz[0])
-    rea[0][i] = float(xyz[1])
-    rea[1][i] = float(xyz[2])
-    rea[2][i] = float(xyz[3])
-rea_file.close()
-
-for i in range(natom):
-    xyz = pro_lines[i + 2].split()
-    catom.append(xyz[0])
-    pro[0][i] = float(xyz[1])
-    pro[1][i] = float(xyz[2])
-    pro[2][i] = float(xyz[3])
-pro_file.close()
+    return np.dot(np.dot(rrz, rrx), pos), rmag
 
 
-# RMSD function
-def rmsdfun(x):
-    e = 0
-    deg_rad = x
-    costhrz = math.cos(deg_rad)
-    sinthrz = math.sin(deg_rad)
-    rrz[0][2] = 0
-    rrz[1][2] = 0
-    rrz[2][0] = 0
-    rrz[2][1] = 0
-    rrz[0][0] = costhrz
+def rotation_z(deg_rad):
+    """Rotation matrix about the Z axis by ``deg_rad`` radians."""
+    rrz = np.zeros((3, 3))
+    rrz[0][0] = math.cos(deg_rad)
+    rrz[0][1] = math.sin(deg_rad)
+    rrz[1][0] = -math.sin(deg_rad)
+    rrz[1][1] = math.cos(deg_rad)
     rrz[2][2] = 1.0e0
-    rrz[1][0] = -sinthrz
-    rrz[0][1] = sinthrz
-    rrz[1][1] = costhrz
-    pro_new = numpy.dot(rrz, pro)
-    for k in range(natom):
-        a = (rea[0][k] - pro_new[0][k]) * (rea[0][k] - pro_new[0][k])
-        b = (rea[1][k] - pro_new[1][k]) * (rea[1][k] - pro_new[1][k])
-        c = (rea[2][k] - pro_new[2][k]) * (rea[2][k] - pro_new[2][k])
-        d = a + b + c
-        e = d + e
-    return math.sqrt((1.0 / float(natom)) * e)
+    return rrz
 
 
-# minimize RMSD and rotate
+def minimize_rmsd_rotation(rea, pro, natom):
+    """Rotation angle about Z that minimizes the product-reactant RMSD."""
 
-# RMSD_MAX = 10**10
-# irot = 0
-# for i in range (3600):
-#   e = 0
-#   deg_rad = -i*radians/10
-#   costhrz = math.cos(deg_rad)
-#   sinthrz = math.sin(deg_rad)
-#   rrz[0][2] = 0
-#   rrz[1][2] = 0
-#   rrz[2][0] = 0
-#   rrz[2][1] = 0
-#   rrz[0][0] = costhrz
-#   rrz[2][2] = 1.0e0
-#   rrz[1][0] = -sinthrz
-#   rrz[0][1] = sinthrz
-#   rrz[1][1] = costhrz
-#   pro_new = numpy.dot(rrz,pro)
-#
-# RMSD
-#
-#   for k in range(natom):
-#      a = (rea[0][k]-pro_new[0][k])*(rea[0][k]-pro_new[0][k])
-#      b = (rea[1][k]-pro_new[1][k])*(rea[1][k]-pro_new[1][k])
-#      c = (rea[2][k]-pro_new[2][k])*(rea[2][k]-pro_new[2][k])
-#      d = a + b + c
-#      e = d + e
-#
-#   RMSD = math.sqrt((1.0/float(natom))*e)
-#
-#   rmsd = "RMSD: %12.6f      Rotation angle: %12.6f degrees" % (RMSD, -float(i)/float(10))
-#   print(rmsd)
-#
-#   if RMSD<RMSD_MAX:
-#      RMSD_MAX = RMSD
-#      irot = i
-#
-# deg_rad = -irot*radians/10
+    def rmsdfun(deg_rad):
+        pro_new = np.dot(rotation_z(deg_rad), pro)
+        e = 0
+        for k in range(natom):
+            a = (rea[0][k] - pro_new[0][k]) * (rea[0][k] - pro_new[0][k])
+            b = (rea[1][k] - pro_new[1][k]) * (rea[1][k] - pro_new[1][k])
+            c = (rea[2][k] - pro_new[2][k]) * (rea[2][k] - pro_new[2][k])
+            d = a + b + c
+            e = d + e
+        return math.sqrt((1.0 / float(natom)) * e)
 
-minimization = minimize_scalar(rmsdfun, bounds=(0, 2 * math.pi), method='bounded')
-rmsd_min = minimization.fun
-deg_rad = minimization.x
+    minimization = minimize_scalar(rmsdfun, bounds=(0, 2 * math.pi), method="bounded")
+    return minimization.fun, minimization.x
 
-print("\nMinimum RMSD: %12.6f   Rotation angle is %12.6f degrees\n" % (rmsd_min, 180 * deg_rad / math.pi))
 
-costhrz = math.cos(deg_rad)
-sinthrz = math.sin(deg_rad)
+def main():
+    options = build_parser().parse_args()
 
-rrz[0][2] = 0
-rrz[1][2] = 0
-rrz[2][0] = 0
-rrz[2][1] = 0
-rrz[0][0] = costhrz
-rrz[2][2] = 1.0e0
-rrz[1][0] = -sinthrz
-rrz[0][1] = sinthrz
-rrz[1][1] = costhrz
+    print("\nXYZ file with the reactant structure: " + options.rea)
+    print("XYZ file with the product  structure: " + options.pro)
 
-pro_new = numpy.dot(rrz, pro)
+    print(f"\nDonor index in the reactant structure: {options.rdo}")
+    print(f"Acceptor index in the reactant structure: {options.rac}")
+    print(f"\nDonor index in the product structure: {options.pdo}")
+    print(f"Acceptor index in the product structure: {options.pac}")
 
-fr = open(prorot, "w")
+    print("\nOutput file with the averaged structure: " + options.output_name + "\n")
 
-# print(RMSD)
-# rmsd = "\nMin RMSD: %12.6f      Rotation angle: %12.6f degrees\n" % (RMSD, -float(irot)/float(10))
-# print(rmsd)
+    # (index starts from 0 in python arrays)
+    rdo = options.rdo - 1
+    rac = options.rac - 1
+    pdo = options.pdo - 1
+    pac = options.pac - 1
 
-fr.write(str(natom) + "\n")
-fr.write(
-    "Product with D and A atoms along the Z-axis and aligned with reactant: DA distance %10.6f \u212B\n" % pda_distance)
-for i in range(natom):
-    s = "%-2s %15.8f %15.8f %15.8f\n" % (catom[i], pro_new[0][i], pro_new[1][i], pro_new[2][i])
-    fr.write(s)
-fr.close()
+    reabasename, reaext = os.path.splitext(options.rea)
+    reanew = reabasename + "_DA_along_Z" + reaext
 
-##### Average Structures #######
-# open the two .xyz files
-frea = open(reanew, "r")
-fpro = open(prorot, "r")
+    probasename, proext = os.path.splitext(options.pro)
+    proali = probasename + "_DA_along_Z" + proext
+    prorot = probasename + "_DA_along_Z_aligned" + proext
 
-# read the lines from the two files
-rea_lines = frea.readlines()
-natom = int(rea_lines[0])
-pro_lines = fpro.readlines()
+    # reactant: donor-acceptor axis onto Z, midpoint at the origin
+    natom, rea_symbols, posr = read_xyz(options.rea)
+    posr_new, rda_distance = align_da_to_z(posr, rdo, rac)
 
-# close the two files
-frea.close()
-fpro.close()
+    shift = posr_new[2][rac] / 2
+    for i in range(natom):
+        posr_new[2][i] = posr_new[2][i] - shift
 
-# open an output file
-output = open(options.output_name, "w")
+    write_xyz(
+        reanew,
+        rea_symbols,
+        posr_new,
+        "Reactant with D and A atoms along the Z-axis and midpoint at (0,0,0): "
+        f"DA distance {rda_distance:10.6f} Å",
+    )
 
-# split the lines and calculate the average of each coordinate for each atom
-numlines = len(rea_lines)
+    # product: same treatment
+    natom, pro_symbols, posp = read_xyz(options.pro)
+    posr_new_pro, pda_distance = align_da_to_z(posp, pdo, pac)
 
-output.write(str(natom) + "\n")
-output.write("Average reactant/product configuration: DA distance %10.6f \u212B\n" % da_distance)
-for i in range(natom):
-    atom = (rea_lines[i + 2].split()[0])
-    x_rea = float(rea_lines[i + 2].split()[1])
-    y_rea = float(rea_lines[i + 2].split()[2])
-    z_rea = float(rea_lines[i + 2].split()[3])
-    x_pro = float(pro_lines[i + 2].split()[1])
-    y_pro = float(pro_lines[i + 2].split()[2])
-    z_pro = float(pro_lines[i + 2].split()[3])
-    x_avg = (x_rea + x_pro) / 2
-    y_avg = (y_rea + y_pro) / 2
-    z_avg = (z_rea + z_pro) / 2
-    output.write("%-2s %15.8f %15.8f %15.8f\n" % (atom, x_avg, y_avg, z_avg))
+    # NOTE: the shift historically uses the reactant acceptor index, not the
+    # product one; preserved for backward compatibility with earlier outputs
+    shift = posr_new_pro[2][rac] / 2
+    for i in range(natom):
+        posr_new_pro[2][i] = posr_new_pro[2][i] - shift
 
-output.close()
+    write_xyz(
+        proali,
+        pro_symbols,
+        posr_new_pro,
+        "Product with D and A atoms along the Z-axis and midpoint at (0,0,0): "
+        f"DA distance {pda_distance:10.6f} Å",
+    )
+
+    # Check if DA distances are the same in the reactant and product structures
+    if abs(rda_distance - pda_distance) > 10 ** (-6):
+        print(
+            "\nThe donor acceptor distances in the reactant and product structures "
+            f"are different: {rda_distance} and {pda_distance}"
+        )
+        print(
+            "Donor and acceptor atoms are along the Z-axis and the midpoint is aligned)\n"
+        )
+        print(
+            "Average structure is labeled by the DA distance in the reactant configuration\n"
+        )
+
+    da_distance = rda_distance
+
+    # rotate the product around Z to minimize the RMSD to the reactant
+    # (re-read the written files so the result matches their 8-decimal precision)
+    natom, rea_symbols, rea = read_xyz(reanew)
+    natom, pro_symbols, pro = read_xyz(proali)
+
+    rmsd_min, deg_rad = minimize_rmsd_rotation(rea, pro, natom)
+
+    print(
+        f"\nMinimum RMSD: {rmsd_min:12.6f}   Rotation angle is {180 * deg_rad / math.pi:12.6f} degrees\n"
+    )
+
+    pro_new = np.dot(rotation_z(deg_rad), pro)
+
+    write_xyz(
+        prorot,
+        pro_symbols,
+        pro_new,
+        "Product with D and A atoms along the Z-axis and aligned with reactant: "
+        f"DA distance {pda_distance:10.6f} Å",
+    )
+
+    # average the aligned reactant and product structures
+    natom, rea_symbols, rea = read_xyz(reanew)
+    natom, pro_symbols, pro = read_xyz(prorot)
+
+    write_xyz(
+        options.output_name,
+        rea_symbols,
+        (rea + pro) / 2,
+        f"Average reactant/product configuration: DA distance {da_distance:10.6f} Å",
+    )
+
+
+if __name__ == "__main__":
+    main()

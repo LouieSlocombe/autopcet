@@ -1,4 +1,4 @@
-"""Tests for the pcet rate-constant workflow used in example 1."""
+"""Tests for the PCET rate-constant workflow used in example 1."""
 
 import numpy as np
 import pytest
@@ -14,16 +14,16 @@ from example1_data import (
 )
 from scipy.integrate import simpson
 
-from autopcet import massD, massH, pcet
+from autopcet import PCET, massD, massH
 
 
 @pytest.fixture
-def system(reac_proton_pot: PotentialFunc, prod_proton_pot: PotentialFunc) -> pcet:
-    """A fresh pcet system set up exactly as in example 1."""
-    return pcet(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA, Vel=VEL)
+def system(reac_proton_pot: PotentialFunc, prod_proton_pot: PotentialFunc) -> PCET:
+    """A fresh PCET system set up exactly as in example 1."""
+    return PCET(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA, Vel=VEL)
 
 
-def test_rate_constant_is_positive_and_kie_is_normal(system: pcet) -> None:
+def test_rate_constant_is_positive_and_kie_is_normal(system: PCET) -> None:
     """The example 1 system reproduces its rate constant and H/D KIE."""
     k_tot_h = system.calculate(massH, T=TEMPERATURE)
     assert k_tot_h == system.get_total_rate_constant()
@@ -37,7 +37,7 @@ def test_rate_constant_is_positive_and_kie_is_normal(system: pcet) -> None:
 
 
 def test_reactant_state_distribution_is_a_boltzmann_distribution(
-    system: pcet,
+    system: PCET,
 ) -> None:
     """State populations are normalized and decrease with energy."""
     system.calculate(massH, T=TEMPERATURE)
@@ -48,7 +48,7 @@ def test_reactant_state_distribution_is_a_boltzmann_distribution(
     assert np.all(np.diff(pu) <= 0)
 
 
-def test_proton_states_are_normalized(system: pcet) -> None:
+def test_proton_states_are_normalized(system: PCET) -> None:
     """Vibrational energies are sorted and wave functions are normalized."""
     system.calculate(massH, T=TEMPERATURE)
 
@@ -63,7 +63,7 @@ def test_proton_states_are_normalized(system: pcet) -> None:
         np.testing.assert_allclose(norms, 1.0, rtol=1e-8)
 
 
-def test_overlap_matrix_is_bounded(system: pcet) -> None:
+def test_overlap_matrix_is_bounded(system: PCET) -> None:
     """Overlaps between normalized states cannot exceed one."""
     system.calculate(massH, T=TEMPERATURE)
     suv = system.get_proton_overlap_matrix()
@@ -72,7 +72,7 @@ def test_overlap_matrix_is_bounded(system: pcet) -> None:
     assert np.all(np.abs(suv) <= 1.0 + 1e-6)
 
 
-def test_free_energy_matrices_follow_their_definitions(system: pcet) -> None:
+def test_free_energy_matrices_follow_their_definitions(system: PCET) -> None:
     """dG_uv and the activation matrix match their analytic expressions."""
     system.calculate(massH, T=TEMPERATURE)
     dguv = system.get_reaction_free_energy_matrix()
@@ -92,7 +92,7 @@ def test_free_energy_matrices_follow_their_definitions(system: pcet) -> None:
     )
 
 
-def test_total_rate_is_the_sum_of_state_contributions(system: pcet) -> None:
+def test_total_rate_is_the_sum_of_state_contributions(system: PCET) -> None:
     """k_tot accumulates the non-negative contribution matrix."""
     k_tot = system.calculate(massH, T=TEMPERATURE)
     kuv = system.get_rate_contribution_matrix()
@@ -101,7 +101,7 @@ def test_total_rate_is_the_sum_of_state_contributions(system: pcet) -> None:
     assert k_tot == pytest.approx(np.sum(kuv))
 
 
-def test_reusing_saved_proton_states_reproduces_the_rate(system: pcet) -> None:
+def test_reusing_saved_proton_states_reproduces_the_rate(system: PCET) -> None:
     """Reusing cached vibrational states must not change the answer."""
     k_first = system.calculate(massH, T=TEMPERATURE)
     k_reused = system.calculate(massH, T=TEMPERATURE, reuse_saved_proton_states=True)
@@ -111,7 +111,7 @@ def test_reusing_saved_proton_states_reproduces_the_rate(system: pcet) -> None:
     assert k_deuterium != k_first
 
 
-def test_set_parameters_updates_the_model(system: pcet) -> None:
+def test_set_parameters_updates_the_model(system: PCET) -> None:
     """set_parameters overrides DeltaG, Lambda, and Vel."""
     system.set_parameters(DeltaG=-0.3, Lambda=0.9, Vel=0.05)
 
@@ -123,7 +123,7 @@ def test_set_parameters_updates_the_model(system: pcet) -> None:
 def test_array_input_defines_the_proton_grid() -> None:
     """Tabulated potentials set the rp grid limits from the data."""
     rp_ascending = RP_DATA[::-1]
-    system = pcet(
+    system = PCET(
         (rp_ascending, E_REAC_DATA[::-1]),
         (rp_ascending, E_PROD_DATA[::-1]),
         DELTA_G,
@@ -138,28 +138,28 @@ def test_array_input_defines_the_proton_grid() -> None:
     assert k_tot > 0
 
 
-@pytest.mark.parametrize("smooth", ["fit_poly6", "fit_poly8", "bspline"])
+@pytest.mark.parametrize("smooth", ["poly6", "poly8", "bspline"])
 def test_array_input_supports_all_smoothing_options(smooth: str) -> None:
     """Each smoothing backend yields callable proton potentials."""
     rp_ascending = RP_DATA[::-1]
-    system = pcet(
+    system = PCET(
         (rp_ascending, E_REAC_DATA[::-1]),
         (rp_ascending, E_PROD_DATA[::-1]),
         DELTA_G,
         LAMBDA,
-        Smooth=smooth,
+        smooth=smooth,
     )
 
-    assert np.isfinite(system.ReacProtonPot(0.0))
-    assert np.isfinite(system.ProdProtonPot(0.0))
+    assert np.all(np.isfinite(system.ReacProtonPot(np.array([0.0]))))
+    assert np.all(np.isfinite(system.ProdProtonPot(np.array([0.0]))))
 
 
 def test_grid_limit_keywords_override_defaults(
     reac_proton_pot: PotentialFunc, prod_proton_pot: PotentialFunc
 ) -> None:
     """rmin/rmax keywords take precedence; callables default to +/-0.8."""
-    default = pcet(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA)
-    custom = pcet(
+    default = PCET(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA)
+    custom = PCET(
         reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA, rmin=-0.5, rmax=0.6
     )
 
@@ -174,19 +174,19 @@ def test_invalid_potential_inputs_are_rejected(
 ) -> None:
     """Non-callable, non-tabulated potentials raise TypeError."""
     with pytest.raises(TypeError, match="ReacProtonPot"):
-        pcet(5.0, reac_proton_pot, DELTA_G, LAMBDA)
+        PCET(5.0, reac_proton_pot, DELTA_G, LAMBDA)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="ProdProtonPot"):
-        pcet(reac_proton_pot, 5.0, DELTA_G, LAMBDA)
+        PCET(reac_proton_pot, 5.0, DELTA_G, LAMBDA)  # type: ignore[arg-type]
 
 
 def test_invalid_smoothing_option_is_rejected(
     reac_proton_pot: PotentialFunc,
 ) -> None:
-    """An unknown Smooth choice raises ValueError for either potential."""
+    """An unknown smooth choice raises ValueError for either potential."""
     rp_ascending = RP_DATA[::-1]
     tabulated = (rp_ascending, E_REAC_DATA[::-1])
 
-    with pytest.raises(ValueError, match="Smooth"):
-        pcet(tabulated, reac_proton_pot, DELTA_G, LAMBDA, Smooth="nope")
-    with pytest.raises(ValueError, match="Smooth"):
-        pcet(reac_proton_pot, tabulated, DELTA_G, LAMBDA, Smooth="nope")
+    with pytest.raises(ValueError, match="smooth"):
+        PCET(tabulated, reac_proton_pot, DELTA_G, LAMBDA, smooth="nope")
+    with pytest.raises(ValueError, match="smooth"):
+        PCET(reac_proton_pot, tabulated, DELTA_G, LAMBDA, smooth="nope")

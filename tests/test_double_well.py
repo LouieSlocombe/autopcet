@@ -14,7 +14,7 @@ DELTA = 0.1
 VPT0 = 0.5
 
 
-@pytest.mark.parametrize("smooth", ["poly8", "poly6", "BSpline"])
+@pytest.mark.parametrize("smooth", ["poly8", "poly6", "bspline"])
 def test_double_well_has_two_minima_and_zero_floor(smooth: str) -> None:
     """Every smoothing backend yields a double well with its minimum at zero."""
     potential = make_double_well(DE, DE, BETA, BETA, R0, DELTA, VPT0, smooth=smooth)

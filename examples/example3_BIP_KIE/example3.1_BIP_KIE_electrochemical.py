@@ -8,6 +8,7 @@ from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
 from autopcet import (
+    PCET,
     A2Bohr,
     Ha2eV,
     fermi_distribution,
@@ -17,7 +18,6 @@ from autopcet import (
     kcal2eV,
     massD,
     massH,
-    pcet,
 )
 
 # =========================================================================================
@@ -30,7 +30,9 @@ Rs = np.arange(2.37, 2.92, 0.05)
 
 eta = 0  # unit in V
 Lambda = 21.4 * kcal2eV
-Vel = 1 * kcal2eV  # Vel is not needed for KIE calculation, use a default value of 1 kcal/mol
+Vel = (
+    1 * kcal2eV
+)  # Vel is not needed for KIE calculation, use a default value of 1 kcal/mol
 T = 298.15
 
 # beta' and rho_M parameters in Eqs. (S2) and (S3) are also not needed for KIE calculation, set them equal to 1
@@ -66,12 +68,22 @@ rp = np.linspace(-1.0, 1.0, 256)
 # the proton potentials are digitized from Figure S39 of
 # Huynh et. al. ACS Cent. Sci. 2017, 3, 372-380
 for i, R in enumerate(Rs):
-    dat_red = pd.read_csv(f'proton_potentials/Reduced_BIP_{R:.2f}A.csv', sep=', ', header=0, engine='python')
-    dat_ox = pd.read_csv(f'proton_potentials/Oxidized_BIP_{R:.2f}A.csv', sep=', ', header=0, engine='python')
-    rp_red_tmp = dat_red['x']
-    E_red_tmp = dat_red['y']
-    rp_ox_tmp = dat_ox['x']
-    E_ox_tmp = dat_ox['y']
+    dat_red = pd.read_csv(
+        f"proton_potentials/Reduced_BIP_{R:.2f}A.csv",
+        sep=", ",
+        header=0,
+        engine="python",
+    )
+    dat_ox = pd.read_csv(
+        f"proton_potentials/Oxidized_BIP_{R:.2f}A.csv",
+        sep=", ",
+        header=0,
+        engine="python",
+    )
+    rp_red_tmp = dat_red["x"]
+    E_red_tmp = dat_red["y"]
+    rp_ox_tmp = dat_ox["x"]
+    E_ox_tmp = dat_ox["y"]
 
     # the energy unit in the .csv files is kcal/mol, convert it to eV
     E_red_tmp *= kcal2eV
@@ -94,19 +106,19 @@ gs = fig.add_gridspec(2, hspace=0)
 ax1, ax2 = gs.subplots(sharex=True, sharey=True)
 
 for i in range(len(Rs)):
-    ax1.plot(rp, ReacProtonPot_R[i](rp), '-', lw=2, color=colors[i])
-    ax2.plot(rp, ProdProtonPot_R[i](rp), '-', lw=2, color=colors[i])
+    ax1.plot(rp, ReacProtonPot_R[i](rp), "-", lw=2, color=colors[i])
+    ax2.plot(rp, ProdProtonPot_R[i](rp), "-", lw=2, color=colors[i])
 
 ax2.set_xlim(-1, 1)
 ax2.set_ylim(0, 2.2)
-ax2.set_xlabel(r'$r_{\rm p}\ /\ \rm\AA$', fontsize=16)
-ax1.set_ylabel(r'$E$ / eV', fontsize=16)
-ax2.set_ylabel(r'$E$ / eV', fontsize=16)
+ax2.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
+ax1.set_ylabel(r"$E$ / eV", fontsize=16)
+ax2.set_ylabel(r"$E$ / eV", fontsize=16)
 ax2.set_xticks(np.arange(-1.0, 1.5, 0.5))
 ax1.tick_params(labelsize=14)
 ax2.tick_params(labelsize=14)
 plt.tight_layout()
-plt.savefig('Proton_potentials.png', dpi=300)
+plt.savefig("Proton_potentials.png", dpi=300)
 plt.clf()
 
 # =========================================================================================
@@ -122,13 +134,29 @@ kH_R = np.zeros(len(Rs))
 kD_R = np.zeros(len(Rs))
 
 for i, R in enumerate(Rs):
-    print(f'Calculating... R = {R:.2f}A')
+    print(f"Calculating... R = {R:.2f}A")
 
-    # create two instances of the pcet object for H and D, respectively
-    systemH = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
-                     rmin=-1.0, rmax=1.0)
-    systemD = pcet(ReacProtonPot_R[i], ProdProtonPot_R[i], DeltaG=DeltaG, Lambda=Lambda, Vel=Vel, NStates=NStates,
-                     rmin=-1.0, rmax=1.0)
+    # create two instances of the PCET object for H and D, respectively
+    systemH = PCET(
+        ReacProtonPot_R[i],
+        ProdProtonPot_R[i],
+        DeltaG=DeltaG,
+        Lambda=Lambda,
+        Vel=Vel,
+        NStates=NStates,
+        rmin=-1.0,
+        rmax=1.0,
+    )
+    systemD = PCET(
+        ReacProtonPot_R[i],
+        ProdProtonPot_R[i],
+        DeltaG=DeltaG,
+        Lambda=Lambda,
+        Vel=Vel,
+        NStates=NStates,
+        rmin=-1.0,
+        rmax=1.0,
+    )
 
     kH_epsilon = np.zeros(len(epsilons))
     kD_epsilon = np.zeros(len(epsilons))
@@ -138,8 +166,12 @@ for i, R in enumerate(Rs):
         dG_anodic = epsilon - eta
         systemH.set_parameters(DeltaG=dG_anodic)
         systemD.set_parameters(DeltaG=dG_anodic)
-        kH_epsilon[j] = systemH.calculate(mass=massH, T=T, reuse_saved_proton_states=True)
-        kD_epsilon[j] = systemD.calculate(mass=massD, T=T, reuse_saved_proton_states=True)
+        kH_epsilon[j] = systemH.calculate(
+            mass=massH, T=T, reuse_saved_proton_states=True
+        )
+        kD_epsilon[j] = systemD.calculate(
+            mass=massD, T=T, reuse_saved_proton_states=True
+        )
 
         # plot the wave functions and print the state contrtbutions for epsilon = 0
         # plot for proton and print for both H and D
@@ -161,39 +193,75 @@ for i, R in enumerate(Rs):
                 dEr = Evib_product[0] - Evib_reactant[0]
                 dEp = 0
 
-            ax1.plot(rp, ReacProtonPot_R[i](rp) + dEr, 'b', lw=2)
+            ax1.plot(rp, ReacProtonPot_R[i](rp) + dEr, "b", lw=2)
             scale_wfc = 0.06  # we will plot wave functions and energies in the same plot, this factor scales the wave function for better visualization
 
-            for ii, (Ei, wfci) in enumerate(zip(Evib_reactant[:NStates_to_show], wfc_reactant[:NStates_to_show], strict=True)):
+            for ii, (Ei, wfci) in enumerate(
+                zip(
+                    Evib_reactant[:NStates_to_show],
+                    wfc_reactant[:NStates_to_show],
+                    strict=True,
+                )
+            ):
                 # change the sign of the vibrational wave functions for better visualization
                 # make the largest amplitude positive
                 sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
-                ax1.plot(rp, Ei + dEr + scale_wfc * sign * wfci, 'b-', lw=1, alpha=(1 - 0.12 * ii))
-                ax1.fill_between(rp, Ei + dEr + scale_wfc * sign * wfci, Ei + dEr, color='b', alpha=0.4)
+                ax1.plot(
+                    rp,
+                    Ei + dEr + scale_wfc * sign * wfci,
+                    "b-",
+                    lw=1,
+                    alpha=(1 - 0.12 * ii),
+                )
+                ax1.fill_between(
+                    rp,
+                    Ei + dEr + scale_wfc * sign * wfci,
+                    Ei + dEr,
+                    color="b",
+                    alpha=0.4,
+                )
 
-            ax2.plot(rp, ProdProtonPot_R[i](rp) + dEp, 'r', lw=2)
+            ax2.plot(rp, ProdProtonPot_R[i](rp) + dEp, "r", lw=2)
 
-            for ii, (Ei, wfci) in enumerate(zip(Evib_product[:NStates_to_show], wfc_product[:NStates_to_show], strict=True)):
+            for ii, (Ei, wfci) in enumerate(
+                zip(
+                    Evib_product[:NStates_to_show],
+                    wfc_product[:NStates_to_show],
+                    strict=True,
+                )
+            ):
                 sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
-                ax2.plot(rp, Ei + dEp + scale_wfc * sign * wfci, 'r-', lw=1, alpha=(1 - 0.12 * ii))
-                ax2.fill_between(rp, Ei + dEp + scale_wfc * sign * wfci, Ei + dEp, color='r', alpha=0.4)
+                ax2.plot(
+                    rp,
+                    Ei + dEp + scale_wfc * sign * wfci,
+                    "r-",
+                    lw=1,
+                    alpha=(1 - 0.12 * ii),
+                )
+                ax2.fill_between(
+                    rp,
+                    Ei + dEp + scale_wfc * sign * wfci,
+                    Ei + dEp,
+                    color="r",
+                    alpha=0.4,
+                )
 
             ax2.set_xlim(-1.0, 1.0)
             ax2.set_ylim(0, 1.3)
-            ax1.set_xlabel(r'$r_{\rm p}\ /\ \rm\AA$', fontsize=16)
-            ax1.set_ylabel(r'$E$ / eV', fontsize=16)
-            ax2.set_xlabel(r'$r_{\rm p}\ /\ \rm\AA$', fontsize=16)
+            ax1.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
+            ax1.set_ylabel(r"$E$ / eV", fontsize=16)
+            ax2.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
             ax2.set_xticks(np.arange(-0.8, 1.2, 0.4))
             ax1.tick_params(labelsize=14)
             ax2.tick_params(labelsize=14)
 
             plt.tight_layout()
-            plt.savefig(f'Proton_states_H_R{R:.2f}.png', dpi=300)
+            plt.savefig(f"Proton_states_H_R{R:.2f}.png", dpi=300)
             plt.clf()
 
             # print a table for these quantities
             # write to a file
-            with open(f'rate_constant_contribution_R{R:.2f}A.log', 'w') as outfp:
+            with open(f"rate_constant_contribution_R{R:.2f}A.log", "w") as outfp:
                 # for H
                 Pu = systemH.get_reactant_state_distribution()
                 Suv = systemH.get_proton_overlap_matrix()
@@ -203,15 +271,18 @@ for i, R in enumerate(Rs):
                 k_tot = systemH.get_total_rate_constant()
                 percentage_contribution = kuv / k_tot
 
-                outfp.write(f'\nR = {R:.2f}A, epsilon = 0, eta = 0\n')
-                outfp.write('\nH\n' + '=' * 125 + '\n')
-                outfp.write('(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n')
-                outfp.write('-' * 125 + '\n')
+                outfp.write(f"\nR = {R:.2f}A, epsilon = 0, eta = 0\n")
+                outfp.write("\nH\n" + "=" * 125 + "\n")
+                outfp.write(
+                    "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n"
+                )
+                outfp.write("-" * 125 + "\n")
                 for u in range(NStates_to_show):
                     for v in range(NStates_to_show):
                         outfp.write(
-                            f'({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n')
-                outfp.write('=' * 125 + '\n\n')
+                            f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n"
+                        )
+                outfp.write("=" * 125 + "\n\n")
 
                 # for D
                 Pu = systemD.get_reactant_state_distribution()
@@ -222,24 +293,31 @@ for i, R in enumerate(Rs):
                 k_tot = systemD.get_total_rate_constant()
                 percentage_contribution = kuv / k_tot
 
-                outfp.write('\nD\n' + '=' * 125 + '\n')
-                outfp.write('(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n')
-                outfp.write('-' * 125 + '\n')
+                outfp.write("\nD\n" + "=" * 125 + "\n")
+                outfp.write(
+                    "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n"
+                )
+                outfp.write("-" * 125 + "\n")
                 for u in range(NStates_to_show):
                     for v in range(NStates_to_show):
                         outfp.write(
-                            f'({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n')
-                outfp.write('=' * 125 + '\n\n')
+                            f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n"
+                        )
+                outfp.write("=" * 125 + "\n\n")
 
     # calculate the anodic rate constant according to Eq. (S2) in the paper
-    kH_R[i] = simpson(rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kH_epsilon, epsilons)
-    kD_R[i] = simpson(rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kD_epsilon, epsilons)
+    kH_R[i] = simpson(
+        rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kH_epsilon, epsilons
+    )
+    kD_R[i] = simpson(
+        rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kD_epsilon, epsilons
+    )
 
 # Print PCET rate constants for H and D at each R to a file
-with open('kPCET_data.log', 'w') as outfp:
-    outfp.write('# R_PT/A\tk_H/s^-1\tk_D/s^-1\n')
+with open("kPCET_data.log", "w") as outfp:
+    outfp.write("# R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
     for i, R in enumerate(Rs):
-        outfp.write(f'{R:.2f}\t\t{kH_R[i]:.4e}\t{kD_R[i]:.4e}\n')
+        outfp.write(f"{R:.2f}\t\t{kH_R[i]:.4e}\t{kD_R[i]:.4e}\n")
 
 # =========================================================================================
 # Thermally average the PCET rate constant over R
@@ -255,19 +333,24 @@ R_fine_grid = np.linspace(2.0, 3.0, 200)
 
 # Different interpolation and extrapolation method has been tested, they give similar KIE
 # Interpolate log(k) then take the exponential
-kH_fine_grid = np.exp(interp1d(Rs, np.log(kH_R), kind='quadratic', fill_value='extrapolate')(R_fine_grid))
-kD_fine_grid = np.exp(interp1d(Rs, np.log(kD_R), kind='quadratic', fill_value='extrapolate')(R_fine_grid))
+kH_fine_grid = np.exp(
+    interp1d(Rs, np.log(kH_R), kind="quadratic", fill_value="extrapolate")(R_fine_grid)
+)
+kD_fine_grid = np.exp(
+    interp1d(Rs, np.log(kD_R), kind="quadratic", fill_value="extrapolate")(R_fine_grid)
+)
 
 
 # Directly interpolate k
 # kH_fine_grid = interp1d(Rs, kH_R, kind='quadratic', fill_value='extrapolate')(R_fine_grid)
 # kD_fine_grid = interp1d(Rs, kD_R, kind='quadratic', fill_value='extrapolate')(R_fine_grid)
 
+
 # calculate P(R)
 def PR(R, R0, keff, T):
     ER = 0.5 * keff * (R - R0) * (R - R0) * A2Bohr * A2Bohr * Ha2eV
     kBT = kB * T
-    return (np.exp(-ER / kBT))
+    return np.exp(-ER / kBT)
 
 
 PR = PR(R_fine_grid, R_eq, keff, T)
@@ -282,8 +365,8 @@ ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
 ave_kD = simpson(PR * kD_fine_grid, R_fine_grid)
 
 print()
-print(f'Dominant R for H = {Rmax_H[0]:.2f}A')
-print(f'Dominant R for D = {Rmax_D[0]:.2f}A')
-print(f'k_H_tot = {ave_kH:.4e} s^-1')
-print(f'k_D_tot = {ave_kD:.4e} s^-1')
-print(f'KIE = {ave_kH / ave_kD:.2f}')
+print(f"Dominant R for H = {Rmax_H[0]:.2f}A")
+print(f"Dominant R for D = {Rmax_D[0]:.2f}A")
+print(f"k_H_tot = {ave_kH:.4e} s^-1")
+print(f"k_D_tot = {ave_kD:.4e} s^-1")
+print(f"KIE = {ave_kH / ave_kD:.2f}")
