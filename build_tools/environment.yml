@@ -7,3 +7,6 @@ channels:
 dependencies:
   - python>=3.14
   - pip>=25.1
+  - numpy
+  - scipy
+  - numba

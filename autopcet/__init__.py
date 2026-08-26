@@ -1,9 +1,55 @@
-"""Public package interface."""
+from .autopcet import (
+    A2Bohr,
+    A2cm,
+    A2nm,
+    Bohr2A,
+    Da2me,
+    Ha2eV,
+    Ha2kcal,
+    au2s,
+    c,
+    cm2A,
+    copy_function,
+    eV2Ha,
+    eV2kcal,
+    eV2wn,
+    fermi_distribution,
+    fgh_1d,
+    find_roots,
+    fit_bspline,
+    fit_poly6,
+    fit_poly8,
+    gaussian,
+    h,
+    hbar,
+    inverted_morse,
+    is_array,
+    is_number,
+    kB,
+    kappa_coupling,
+    kcal2Ha,
+    kcal2eV,
+    make_double_well,
+    make_edl_model,
+    make_inverted_morse,
+    make_morse,
+    massD,
+    massH,
+    me2Da,
+    morse,
+    nm2A,
+    poly6,
+    poly8,
+    pcet,
+    wn2eV,
+)
 
-from importlib.metadata import version
-
-from .main import line, print_hello
-
-__version__ = version("autopcet")
-
-__all__ = ["__version__", "line", "print_hello"]
+__all__ = ['morse', 'inverted_morse', 'gaussian', 'poly6', 'poly8',
+           'make_morse', 'make_inverted_morse', 'make_double_well', 'fit_poly6', 'fit_poly8', 'fit_bspline',
+           'find_roots', 'is_number', 'is_array', 'copy_function',
+           'fgh_1d', 'pcet', 'kappa_coupling',
+           'make_edl_model', 'fermi_distribution',
+           'kB', 'h', 'hbar', 'c', 'massH', 'massD',
+           'Ha2eV', 'Ha2kcal', 'kcal2Ha', 'eV2Ha', 'eV2kcal', 'kcal2eV',
+           'A2Bohr', 'A2nm', 'A2cm', 'Bohr2A', 'cm2A', 'nm2A', 'wn2eV', 'eV2wn', 'Da2me', 'me2Da', 'au2s',
+           ]
