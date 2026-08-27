@@ -56,10 +56,9 @@ def main():
     dp_center = np.linspace(
         np.min([-0.5, -1.7 * dPT / 2]), np.max([0.5, 1.7 * dPT / 2]), N
     )
-    print(dp_center)
 
     for i in range(N):
-        os.mkdir(f"{i:02d}")
+        os.makedirs(f"{i:02d}", exist_ok=True)
         with open(f"{i:02d}/{state}_sp.gjf", "w") as outfp:
             outfp.write(
                 heading.format(state=state, charge=charge, multiplicity=multiplicity)

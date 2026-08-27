@@ -92,7 +92,7 @@ V_sc, V_nad, V_ad = system.get_vibronic_couplings()
 ## Examples
 
 The `examples/` directory contains worked calculations, each with its input
-data and (where deterministic) a reference output to compare against:
+data and a reference output to compare against:
 
 1. `example1_basic_usage` — rate constant, vibronic-state analysis, and H/D
    KIE for a first-principles double-well potential.
@@ -104,8 +104,8 @@ data and (where deterministic) a reference output to compare against:
 4. `example4_CoTPP` — heterogeneous electrochemical PCET for CoTPP on
    graphene, combining the EDL model with a density-of-states average.
 5. `example5_RNR_nonadiabaticity` — vibronic couplings and nonadiabaticity
-   analysis for the RNR Y356-Y731 interface in the gas phase and in the
-   protein environment.
+   analysis for the RNR Y356-Y731 interface, in the gas phase
+   (`--config gas`) or in the protein environment (`--config env`).
 
 Run an example from inside its own directory, e.g.:
 
@@ -113,6 +113,20 @@ Run an example from inside its own directory, e.g.:
 cd examples/example1_basic_usage
 python example1_basic_usage.py
 ```
+
+Example 5 takes the configuration to run as an argument, and writes a separate
+set of figures for each:
+
+```bash
+cd examples/example5_RNR_nonadiabaticity
+python example5_nonadiabaticity_Y356-Y731.py --config gas
+python example5_nonadiabaticity_Y356-Y731.py --config env
+```
+
+The reference outputs were generated with the NumPy and SciPy versions current
+at the time; results can drift in the third significant digit across releases.
+`tests/test_examples.py` re-runs examples 1 and 5 and compares them at a
+relative tolerance.
 
 The `scripts/` directory holds standalone Gaussian/ASE helpers for preparing
 the inputs of such calculations (potential scans, structure alignment,

@@ -6,6 +6,8 @@ import argparse
 import numpy as np
 from ase.io import read, write
 
+from autopcet import A2cm, Da2me, au2s, c
+
 
 def read_Gaussian_freq_job(xyzfile, logfile):
     atoms = read(xyzfile)
@@ -79,7 +81,7 @@ def calc_keff(
     # convert the unit of force constant from mDyne/A to au
     # 1 au = 8.2387235038 mDyne, 1 Bohr = 0.529177 A
     scale = 8.2387235038 / 0.529177
-    force_constants /= scale
+    force_constants_au = force_constants / scale
 
     poses = atoms.get_positions()
 
@@ -87,7 +89,7 @@ def calc_keff(
     eDA = poses[acceptor_index] - poses[donor_index]
     eDA /= np.linalg.norm(eDA)
 
-    nDOFvib = len(force_constants)
+    nDOFvib = len(force_constants_au)
     weights = np.zeros(nDOFvib)
 
     for imode in range(nDOFvib):
@@ -95,17 +97,16 @@ def calc_keff(
         lDi = normal_modes[imode, donor_index * 3 : donor_index * 3 + 3]
         weights[imode] = np.inner(eDA, lAi - lDi)
 
-    effective_force_constant = 1 / (np.sum(weights * weights / force_constants))
+    effective_force_constant = 1 / (np.sum(weights * weights / force_constants_au))
     effective_reduced_mass = 1 / (np.sum(weights * weights / reduced_masses))
 
     # calculate effective proton DA vibrational frequency in cm-1
-    Da2au = 1822.888486209
-    au2s = 2.418884326e-17
-    c = 29979245800  # in cm/s
+    # autopcet.c is in A/s, so convert it to cm/s for a wavenumber
+    c_cm = c * A2cm
     effective_frequency = (
-        np.sqrt(effective_force_constant / effective_reduced_mass / Da2au)
+        np.sqrt(effective_force_constant / effective_reduced_mass / Da2me)
         / au2s
-        / c
+        / c_cm
         / 2
         / np.pi
     )

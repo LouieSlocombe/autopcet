@@ -13,7 +13,7 @@ from autopcet import (
     massH,
     morse,
 )
-from autopcet.autopcet import _find_first_crossing
+from autopcet.utils import _find_first_crossing
 
 # A symmetric model double well in the style of the RNR Y356-Y731 system of
 # example 5: two Morse diabats crossing at rp = 0, on a 512-point grid.

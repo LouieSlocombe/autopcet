@@ -1,12 +1,34 @@
+"""Vibronic couplings and nonadiabaticity analysis for the RNR Y356-Y731
+interface, in the gas phase or in the protein environment.
+
+Run once per configuration; each writes its own figures:
+
+    python example5_nonadiabaticity_Y356-Y731.py --config gas
+    python example5_nonadiabaticity_Y356-Y731.py --config env
+"""
+
+import argparse
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import CubicSpline
 
 from autopcet import KappaCoupling, fit_bspline, kcal2eV, massH
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--config",
+    choices=("gas", "env"),
+    default="gas",
+    help="gas phase or protein environment (default: %(default)s)",
+)
+config = parser.parse_args().config
+
 # double well potentials and electronic coupling read from a file
 # In this file, all energies are in kcal/mol
-rp_read, E_Reac, E_Prod, Vel = np.loadtxt("Y356_Y731_config2_gas.dat", unpack=True)
+rp_read, E_Reac, E_Prod, Vel = np.loadtxt(
+    f"Y356_Y731_config2_{config}.dat", unpack=True
+)
 E_Reac *= kcal2eV
 E_Prod *= kcal2eV
 Vel *= kcal2eV
@@ -55,7 +77,6 @@ shifted_pot_product, shifted_Evib_product, wfc_product = (
 # for plot use only
 rp_crossing = system.rp_crossing
 E_crossing = system.E_crossing
-Vel_crossing = system.Vel_crossing
 slope_Reac = system.slope_reac
 slope_Prod = system.slope_prod
 
@@ -70,7 +91,6 @@ plt.plot(tmp_x, slope_Prod * (tmp_x - rp_crossing) + E_crossing, "k--", lw=1.5)
 
 # plot proton vibrational wave functions
 scale_wfc = 0.06
-NStates_to_show = 1
 
 # change the sign of the vibrational wave functions for better visualization
 # make the largest amplitude positive
@@ -110,7 +130,7 @@ plt.xticks(np.arange(-0.6, 0.8, 0.2), fontsize=16)
 plt.yticks(fontsize=16)
 
 plt.tight_layout()
-plt.savefig("Proton_pot_w_slope_Y356_Y731.png", dpi=300)
+plt.savefig(f"Proton_pot_w_slope_Y356_Y731_{config}.png", dpi=300)
 plt.clf()
 
 # ===========================================================
@@ -133,4 +153,4 @@ plt.xticks(np.arange(-0.6, 0.8, 0.2), fontsize=16)
 plt.yticks(fontsize=16)
 
 plt.tight_layout()
-plt.savefig("Proton_pot_adiabatic_Y356_Y731.png", dpi=300)
+plt.savefig(f"Proton_pot_adiabatic_Y356_Y731_{config}.png", dpi=300)

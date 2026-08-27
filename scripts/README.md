@@ -25,7 +25,7 @@ The following arguments are required (the script no longer prompts interactively
 For example, if the xyz files for the reactant and product are “reac.xyz“ and “prod.xyz“, respectively, and the indices of the proton donor and acceptor are 1 and 2 in both files, respectively, then you can run the script by:
 
 ```bash
->>> python3 align_average_midpoint_minRMSD.py -r reac.xyz -p prod.xyz --r-donor 1 --r-acceptor 2 --p-donor 1 --p-acceptor 2
+python3 align_average_midpoint_minRMSD.py -r reac.xyz -p prod.xyz --r-donor 1 --r-acceptor 2 --p-donor 1 --p-acceptor 2
 ```
 
 ## Optimize Proton Position on the Averaged Structure
@@ -64,7 +64,7 @@ Options:
 For example, if the xyz for the molecule is “mol.xyz“, the log file of the Gaussian frequency job is “freq.log“, and the atomic indices of the proton donor and acceptor are 0 and 1, respectively, then you can run the script as:
 
 ```bash
->>> python3 calc_keff.py --xyz mol.xyz --log freq.log -D 0 -A 1
+python3 calc_keff.py --xyz mol.xyz --log freq.log -D 0 -A 1
 ```
 
 It will print the effective force constant for the proton donor-acceptor mode in a.u., the effective reduced mass for this mass in amu, and the effective frequency in cm<sup>-1</sup>.

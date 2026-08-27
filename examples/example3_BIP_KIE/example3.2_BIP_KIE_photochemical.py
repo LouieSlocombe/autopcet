@@ -192,15 +192,15 @@ def PR(R, R0, keff, T):
 
 
 PR = PR(R_fine_grid, R_eq, keff, T)
-Z = simpson(PR, R_fine_grid)
+Z = simpson(PR, x=R_fine_grid)
 PR /= Z
 
 # perform thermal average and print the final results
 Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
 Rmax_D = R_fine_grid[find_peaks(PR * kD_fine_grid)[0]]
 
-ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
-ave_kD = simpson(PR * kD_fine_grid, R_fine_grid)
+ave_kH = simpson(PR * kH_fine_grid, x=R_fine_grid)
+ave_kD = simpson(PR * kD_fine_grid, x=R_fine_grid)
 
 print()
 print(f"Dominant R for H = {Rmax_H[0]:.2f}A")

@@ -173,10 +173,12 @@ for i, R in enumerate(Rs):
             mass=massD, T=T, reuse_saved_proton_states=True
         )
 
-        # plot the wave functions and print the state contrtbutions for epsilon = 0
+        # plot the wave functions and print the state contributions for epsilon = 0
         # plot for proton and print for both H and D
+        # compare against a tolerance: epsilon comes off a linspace, so exact
+        # equality with 0.0 is not something to rely on
 
-        if epsilon == 0.0:
+        if abs(epsilon) <= 1e-9:
             fig = plt.figure(figsize=(9, 4.5))
             gs = fig.add_gridspec(ncols=2, wspace=0)
             ax1, ax2 = gs.subplots(sharex=True, sharey=True)
@@ -307,10 +309,12 @@ for i, R in enumerate(Rs):
 
     # calculate the anodic rate constant according to Eq. (S2) in the paper
     kH_R[i] = simpson(
-        rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kH_epsilon, epsilons
+        rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kH_epsilon,
+        x=epsilons,
     )
     kD_R[i] = simpson(
-        rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kD_epsilon, epsilons
+        rho_M / beta * (1 - fermi_distribution(epsilons, T=T)) * kD_epsilon,
+        x=epsilons,
     )
 
 # Print PCET rate constants for H and D at each R to a file
@@ -354,15 +358,15 @@ def PR(R, R0, keff, T):
 
 
 PR = PR(R_fine_grid, R_eq, keff, T)
-Z = simpson(PR, R_fine_grid)
+Z = simpson(PR, x=R_fine_grid)
 PR /= Z
 
 # perform thermal average and print the final results
 Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
 Rmax_D = R_fine_grid[find_peaks(PR * kD_fine_grid)[0]]
 
-ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
-ave_kD = simpson(PR * kD_fine_grid, R_fine_grid)
+ave_kH = simpson(PR * kH_fine_grid, x=R_fine_grid)
+ave_kD = simpson(PR * kD_fine_grid, x=R_fine_grid)
 
 print()
 print(f"Dominant R for H = {Rmax_H[0]:.2f}A")

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from autopcet import fermi_distribution, make_edl_model
-from autopcet.autopcet import _ScalarArrayFunction
+from autopcet._types import _ScalarArrayFunction
 
 # Electrode/electrolyte parameters for CoTPP on graphene from example 4.
 E_VS_SHE = -0.6

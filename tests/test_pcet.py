@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-from conftest import PotentialFunc
 from example1_data import (
     DELTA_G,
     E_PROD_DATA,
@@ -15,10 +14,13 @@ from example1_data import (
 from scipy.integrate import simpson
 
 from autopcet import PCET, massD, massH
+from autopcet._types import PotentialFunction
 
 
 @pytest.fixture
-def system(reac_proton_pot: PotentialFunc, prod_proton_pot: PotentialFunc) -> PCET:
+def system(
+    reac_proton_pot: PotentialFunction, prod_proton_pot: PotentialFunction
+) -> PCET:
     """A fresh PCET system set up exactly as in example 1."""
     return PCET(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA, Vel=VEL)
 
@@ -155,7 +157,7 @@ def test_array_input_supports_all_smoothing_options(smooth: str) -> None:
 
 
 def test_grid_limit_keywords_override_defaults(
-    reac_proton_pot: PotentialFunc, prod_proton_pot: PotentialFunc
+    reac_proton_pot: PotentialFunction, prod_proton_pot: PotentialFunction
 ) -> None:
     """rmin/rmax keywords take precedence; callables default to +/-0.8."""
     default = PCET(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA)
@@ -170,7 +172,7 @@ def test_grid_limit_keywords_override_defaults(
 
 
 def test_invalid_potential_inputs_are_rejected(
-    reac_proton_pot: PotentialFunc,
+    reac_proton_pot: PotentialFunction,
 ) -> None:
     """Non-callable, non-tabulated potentials raise TypeError."""
     with pytest.raises(TypeError, match="ReacProtonPot"):
@@ -180,7 +182,7 @@ def test_invalid_potential_inputs_are_rejected(
 
 
 def test_invalid_smoothing_option_is_rejected(
-    reac_proton_pot: PotentialFunc,
+    reac_proton_pot: PotentialFunction,
 ) -> None:
     """An unknown smooth choice raises ValueError for either potential."""
     rp_ascending = RP_DATA[::-1]

@@ -20,7 +20,7 @@ from autopcet import (
 
 # =========================================================================================
 # Define the thermodynamic parameters, taken from
-# Hutchison et. al. ACS Catat. 2024, 19, 14363-14372.
+# Hutchison et. al. ACS Catal. 2024, 19, 14363-14372.
 # =========================================================================================
 
 # Donor-Acceptor distance values sampled in calculations
@@ -204,8 +204,12 @@ R_max = Rs[-1]
 # Build the proton donor-accceptor distance grid based on the extrema of the sampled distances
 R_fine_grid = np.linspace(R_min, R_max, 200)
 
-DeltaGR = np.zeros((2, len(Rs)))
 kHD_of_E = np.zeros((3, len(E_appl_list)))
+
+# Truncate the rate-constant log and write its header once, up front; every
+# applied potential below appends its own block of rows to it.
+with open("kPCET_data.log", "w") as outfp:
+    outfp.write("# E / V\t R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
 
 # Loop over applied potential
 for n, E_appl in enumerate(E_appl_list):
@@ -230,27 +234,14 @@ for n, E_appl in enumerate(E_appl_list):
     for i, R in enumerate(Rs):
         react_work = reactant_work(R) + EDL_potential_drop(R)
         prod_work = product_work(R)
-        DeltaW = prod_work - react_work
-
-        # Correct the Delta G0 value with applied potential and work terms
-        DeltaGH = DeltaG0_H + E_appl + prod_work - react_work + RTF * np.log(10) * pH
-
-        # Correct the Delta G0 value with applied potential and work terms
-        # The last term accounts for offsets in the pK_W for H_2O and D_2O which affect the potential scale
-        DeltaGD = (
-            DeltaG0_D
-            + E_appl
-            + prod_work
-            - react_work
-            + RTF * np.log(10) * pH
-            - RTF * np.log(10) * (14.0 - 14.87)
-        )
 
         print(f"Calculating... R = {R:.3f}A")
+        # DeltaG is set per electrode energy level inside the epsilon loop below;
+        # these instances just need a placeholder to be constructed with.
         systemH = PCET(
             ReacProtonPot_R[i],
             ProdProtonPot_R[i],
-            DeltaG=DeltaGH,
+            DeltaG=DeltaG0_H,
             Lambda=Lambda,
             Vel=Vel,
             NStates=NStates,
@@ -260,7 +251,7 @@ for n, E_appl in enumerate(E_appl_list):
         systemD = PCET(
             ReacProtonPot_R[i],
             ProdProtonPot_R[i],
-            DeltaG=DeltaGD,
+            DeltaG=DeltaG0_D,
             Lambda=Lambda,
             Vel=Vel,
             NStates=NStates,
@@ -352,12 +343,11 @@ for n, E_appl in enumerate(E_appl_list):
             DOS[j] = rho_DOS[j] * fermi_distribution(epsilon, T=T)
 
         # Numerical integration over the electrode energy levels
-        kH_R[i] = simpson(DOS * kH_epsilon, epsilons)
-        kD_R[i] = simpson(DOS * kD_epsilon, epsilons)
+        kH_R[i] = simpson(DOS * kH_epsilon, x=epsilons)
+        kD_R[i] = simpson(DOS * kD_epsilon, x=epsilons)
 
-    # Print PCET rate constants for H and D at each R to a file
-    with open("kPCET_data.log", "w") as outfp:
-        outfp.write("# E / V\t R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
+    # Append the PCET rate constants for H and D at each R to the log
+    with open("kPCET_data.log", "a") as outfp:
         for i, R in enumerate(Rs):
             outfp.write(f"{E_appl:.2f}\t\t{R:.3f}\t\t{kH_R[i]:.4e}\t{kD_R[i]:.4e}\n")
 
@@ -389,8 +379,8 @@ for n, E_appl in enumerate(E_appl_list):
     Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
     Rmax_D = R_fine_grid[find_peaks(PR * kD_fine_grid)[0]]
 
-    ave_kH_of_E_appl = simpson(PR * kH_fine_grid, R_fine_grid)
-    ave_kD_of_E_appl = simpson(PR * kD_fine_grid, R_fine_grid)
+    ave_kH_of_E_appl = simpson(PR * kH_fine_grid, x=R_fine_grid)
+    ave_kD_of_E_appl = simpson(PR * kD_fine_grid, x=R_fine_grid)
 
     print()
     print(f"Applied Potential= {E_appl:.2f} V vs SHE")
@@ -405,8 +395,8 @@ for n, E_appl in enumerate(E_appl_list):
     kHD_of_E[1][n] = np.log(ave_kH_of_E_appl)
     kHD_of_E[2][n] = np.log(ave_kD_of_E_appl)
 
-Tafel_params_H, covH = curve_fit(Tafel, kHD_of_E[0], kHD_of_E[1])
-Tafel_params_D, covD = curve_fit(Tafel, kHD_of_E[0], kHD_of_E[2])
+Tafel_params_H, _ = curve_fit(Tafel, kHD_of_E[0], kHD_of_E[1])
+Tafel_params_D, _ = curve_fit(Tafel, kHD_of_E[0], kHD_of_E[2])
 
 # Remove the factor of F/RT from the Tafel prefactor
 alphaH = Tafel_params_H[0] * RTF

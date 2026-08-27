@@ -51,9 +51,8 @@ def main():
     R = np.linspace(2.4, 2.8, 9)
 
     for Ri in R:
-        os.mkdir(f"R{Ri:.2f}A")
-        os.mkdir(f"R{Ri:.2f}A/reac_opt/")
-        os.mkdir(f"R{Ri:.2f}A/prod_opt/")
+        os.makedirs(f"R{Ri:.2f}A/reac_opt/", exist_ok=True)
+        os.makedirs(f"R{Ri:.2f}A/prod_opt/", exist_ok=True)
 
         # copy the reactant and product structure for further modification
         tmp_reac = reac_struct.copy()

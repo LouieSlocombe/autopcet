@@ -2,8 +2,7 @@
 
 from importlib.metadata import version as _version
 
-from .autopcet import (
-    PCET,
+from .constants import (
     A2Bohr,
     A2cm,
     A2nm,
@@ -12,41 +11,41 @@ from .autopcet import (
     Debye2au,
     Ha2eV,
     Ha2kcal,
-    KappaCoupling,
     au2s,
     c,
     cm2A,
     eV2Ha,
     eV2kcal,
     eV2wn,
-    fermi_distribution,
-    fgh_1d,
-    find_roots,
+    h,
+    hbar,
+    kB,
+    kcal2eV,
+    kcal2Ha,
+    massD,
+    massH,
+    me2Da,
+    nm2A,
+    wn2eV,
+)
+from .edl import fermi_distribution, make_edl_model
+from .fgh import fgh_1d
+from .kappa import KappaCoupling
+from .potentials import (
     fit_bspline,
     fit_poly6,
     fit_poly8,
     gaussian,
-    h,
-    hbar,
     inverted_morse,
-    is_array,
-    is_number,
-    kB,
-    kcal2eV,
-    kcal2Ha,
     make_double_well,
-    make_edl_model,
     make_inverted_morse,
     make_morse,
-    massD,
-    massH,
-    me2Da,
     morse,
-    nm2A,
     poly6,
     poly8,
-    wn2eV,
 )
+from .rates import PCET
+from .utils import find_roots, is_array, is_number
 
 __version__ = _version("autopcet")
 

@@ -151,7 +151,8 @@ ax2.set_xticks(np.arange(-0.6, 0.8, 0.2))
 ax2.tick_params(labelsize=14)
 
 plt.tight_layout()
-plt.show()
+plt.savefig("Proton_states.png", dpi=300)
+plt.clf()
 
 # ===========================================================
 # Analyze the contribution of each pair of vibronic states

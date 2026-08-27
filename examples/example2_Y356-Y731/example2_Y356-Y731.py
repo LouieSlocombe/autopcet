@@ -224,14 +224,14 @@ params = curve_fit(poly4, R_tmp, np.log(PR_tmp))[0]
 PR = np.exp(poly4(R_fine_grid, *params))
 
 # re-normalize the distribution
-Z = simpson(PR, R_fine_grid)
+Z = simpson(PR, x=R_fine_grid)
 PR /= Z
 R_eq = R_fine_grid[find_peaks(PR)[0]]
 
 # perform thermal average and print the final results
 Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
 
-ave_kH = simpson(PR * kH_fine_grid, R_fine_grid)
+ave_kH = simpson(PR * kH_fine_grid, x=R_fine_grid)
 
 print()
 print(f"Dominant R for H = {Rmax_H[0]:.2f}A")
