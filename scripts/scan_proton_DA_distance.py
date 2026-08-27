@@ -11,22 +11,25 @@ import numpy as np
 from ase.io import read
 
 # xyz files for the reactant and the product
-reac_xyz = "reac.xyz"
-prod_xyz = "prod.xyz"
+REACTANT_XYZ = "reac.xyz"
+PRODUCT_XYZ = "prod.xyz"
 
-# atomic indices (start from 0) of the proton donor and acceptor in the xyz files
-Hdonor = 0
-Hacceptor = 2
+# atomic indices (starting from 0) of the proton donor and acceptor
+DONOR_INDEX = 0
+ACCEPTOR_INDEX = 2
 
-# charge and multiplicity of the reactant and product
-# here we assume the reactant is a neutral singlet and the product is a doublet with +1 charge
-reac_charge = 0
-reac_multiplicity = 1
-prod_charge = 1
-prod_multiplicity = 2
+# charge and multiplicity of the reactant and product; here the reactant is a
+# neutral singlet and the product a doublet with charge +1
+REACTANT_CHARGE = 0
+REACTANT_MULTIPLICITY = 1
+PRODUCT_CHARGE = 1
+PRODUCT_MULTIPLICITY = 2
 
-# change the level of theory or add empirical dispersion/implicit solvent as needed,
-heading = """%chk={state}.chk
+# range of proton donor-acceptor distances to scan, in angstrom
+DISTANCES = np.linspace(2.4, 2.8, 9)
+
+# change the level of theory or add empirical dispersion/implicit solvent as needed
+HEADER_TEMPLATE = """%chk={state}.chk
 %nprocshared=24
 %mem=80GB
 # B3LYP/6-31+g(d,p) opt=(ModRedundant)
@@ -36,73 +39,67 @@ heading = """%chk={state}.chk
 {charge} {multiplicity}
 """
 
-ending_fix_bond = """{Hdonor}   {Hacceptor}   ={R:.2f}   B
-{Hdonor}   {Hacceptor}   F
+CONSTRAINT_TEMPLATE = """{donor}   {acceptor}   ={distance:.2f}   B
+{donor}   {acceptor}   F
 """
 
 
 def main():
-    # read fully optimized reactant and product structure from xyz files
-    # the order of the atoms in these files must be the same
-    reac_struct = read(reac_xyz)
-    prod_struct = read(prod_xyz)
+    # read the fully optimized reactant and product structures; the atoms must
+    # appear in the same order in both files
+    reactant = read(REACTANT_XYZ)
+    product = read(PRODUCT_XYZ)
 
-    # define the range of proton donor-acceptor distance R
-    R = np.linspace(2.4, 2.8, 9)
+    for distance in DISTANCES:
+        directory = f"R{distance:.2f}A"
+        os.makedirs(f"{directory}/reac_opt/", exist_ok=True)
+        os.makedirs(f"{directory}/prod_opt/", exist_ok=True)
 
-    for Ri in R:
-        os.makedirs(f"R{Ri:.2f}A/reac_opt/", exist_ok=True)
-        os.makedirs(f"R{Ri:.2f}A/prod_opt/", exist_ok=True)
+        # copy the structures and set the donor-acceptor distance on each copy
+        scaled_reactant = reactant.copy()
+        scaled_product = product.copy()
+        scaled_reactant.set_distance(DONOR_INDEX, ACCEPTOR_INDEX, distance, fix=0)
+        scaled_product.set_distance(DONOR_INDEX, ACCEPTOR_INDEX, distance, fix=1)
 
-        # copy the reactant and product structure for further modification
-        tmp_reac = reac_struct.copy()
-        tmp_prod = prod_struct.copy()
+        symbols = scaled_reactant.symbols
+        states = (
+            (
+                f"{directory}/reac_opt/reac_opt.gjf",
+                "reactant",
+                REACTANT_CHARGE,
+                REACTANT_MULTIPLICITY,
+                scaled_reactant.get_positions(),
+            ),
+            (
+                f"{directory}/prod_opt/prod_opt.gjf",
+                "product",
+                PRODUCT_CHARGE,
+                PRODUCT_MULTIPLICITY,
+                scaled_product.get_positions(),
+            ),
+        )
 
-        # set the distance between proton donor and proton acceptor to Ri
-        tmp_reac.set_distance(Hdonor, Hacceptor, Ri, fix=0)
-        tmp_prod.set_distance(Hdonor, Hacceptor, Ri, fix=1)
-
-        # read the atomic symbol and positions from the modified structure
-        symbols = tmp_reac.symbols
-        reac_pos = tmp_reac.get_positions()
-        prod_pos = tmp_prod.get_positions()
-
-        with (
-            open(f"R{Ri:.2f}A/reac_opt/reac_opt.gjf", "w") as outfp_reac_opt,
-            open(f"R{Ri:.2f}A/prod_opt/prod_opt.gjf", "w") as outfp_prod_opt,
-        ):
-            # write the heading in file
-            outfp_reac_opt.write(
-                heading.format(
-                    state="reactant", charge=reac_charge, multiplicity=reac_multiplicity
+        for path, state, charge, multiplicity, positions in states:
+            with open(path, "w") as gaussian_input:
+                gaussian_input.write(
+                    HEADER_TEMPLATE.format(
+                        state=state, charge=charge, multiplicity=multiplicity
+                    )
                 )
-            )
-            outfp_prod_opt.write(
-                heading.format(
-                    state="product", charge=prod_charge, multiplicity=prod_multiplicity
+                for symbol, (x, y, z) in zip(symbols, positions, strict=True):
+                    gaussian_input.write(
+                        f"{symbol:2s}       {x: 3.6f}    {y: 3.6f}    {z: 3.6f}\n"
+                    )
+                gaussian_input.write("\n")
+                # Gaussian indices start from 1
+                gaussian_input.write(
+                    CONSTRAINT_TEMPLATE.format(
+                        donor=DONOR_INDEX + 1,
+                        acceptor=ACCEPTOR_INDEX + 1,
+                        distance=distance,
+                    )
                 )
-            )
-
-            for i in range(len(reac_struct)):
-                outfp_reac_opt.write(
-                    f"{symbols[i]:2s}       {reac_pos[i, 0]: 3.6f}    {reac_pos[i, 1]: 3.6f}    {reac_pos[i, 2]: 3.6f}\n"
-                )
-                outfp_prod_opt.write(
-                    f"{symbols[i]:2s}       {prod_pos[i, 0]: 3.6f}    {prod_pos[i, 1]: 3.6f}    {prod_pos[i, 2]: 3.6f}\n"
-                )
-
-            outfp_reac_opt.write("\n")
-            outfp_prod_opt.write("\n")
-
-            outfp_reac_opt.write(
-                ending_fix_bond.format(Hdonor=Hdonor + 1, Hacceptor=Hacceptor + 1, R=Ri)
-            )
-            outfp_prod_opt.write(
-                ending_fix_bond.format(Hdonor=Hdonor + 1, Hacceptor=Hacceptor + 1, R=Ri)
-            )
-
-            outfp_reac_opt.write("\n")
-            outfp_prod_opt.write("\n")
+                gaussian_input.write("\n")
 
 
 if __name__ == "__main__":

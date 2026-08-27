@@ -5,60 +5,59 @@ from numba import jit
 from scipy.integrate import simpson
 
 from ._types import FloatArray
-from .constants import A2Bohr, Ha2eV, eV2Ha
+from .constants import ANGSTROM_TO_BOHR, EV_TO_HARTREE, HARTREE_TO_EV
 
 
 @jit(nopython=True)
 def fgh_1d(
-    ngrid: int, sgrid: float, potential: FloatArray, mass: float
+    n_grid: int, grid_length: float, potential: FloatArray, mass: float
 ) -> tuple[FloatArray, FloatArray]:
     """Solve a 1D Schroedinger equation with the Fourier grid Hamiltonian method.
 
-    All quantities are in atomic units: ``sgrid`` is the grid length,
-    ``potential`` the potential energy on the grid, and ``mass`` the particle
-    mass. Returns the eigenvalues and eigenvectors of the Hamiltonian.
+    All quantities are in atomic units: ``grid_length`` is the length of the
+    (evenly spaced) grid, ``potential`` the potential energy on it, and ``mass``
+    the particle mass. Returns the eigenvalues and eigenvectors of the
+    Hamiltonian, with the eigenvectors held in the columns.
     """
-    nx = ngrid
-    dx = sgrid / (ngrid - 1)
-    k = np.pi / dx
+    spacing = grid_length / (n_grid - 1)
+    k_max = np.pi / spacing
 
-    vmat = np.zeros((nx, nx))
-    tmat = np.zeros((nx, nx))
-    hmat = np.zeros((nx, nx))
+    inverse_two_mass = 1 / (2 * mass)
+    diagonal_kinetic = (k_max**2) / 3
+    kinetic_prefactor = (2 * k_max**2) / (np.pi**2)
 
-    for i in range(nx):
-        for j in range(nx):
+    hamiltonian = np.zeros((n_grid, n_grid))
+    for i in range(n_grid):
+        for j in range(n_grid):
             if i == j:
-                vmat[i, j] = potential[j]
-                tmat[i, j] = (k**2) / 3
+                hamiltonian[i, j] = inverse_two_mass * diagonal_kinetic + potential[j]
             else:
-                dji = j - i
-                vmat[i, j] = 0
-                tmat[i, j] = (2 * k**2) / (np.pi**2) * (((-1) ** dji) / (dji**2))
+                separation = j - i
+                hamiltonian[i, j] = inverse_two_mass * (
+                    kinetic_prefactor * (((-1) ** separation) / (separation**2))
+                )
 
-            hmat[i, j] = (1 / (2 * mass)) * tmat[i, j] + vmat[i, j]
-
-    hmat_soln = np.linalg.eigh(hmat)
-    return hmat_soln
+    return np.linalg.eigh(hamiltonian)
 
 
-def _solve_vibrational_states(
-    rp: FloatArray, potential_eV: FloatArray, mass: float, nstates: int
-) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """Solve for proton vibrational states on the grid ``rp`` (in Angstrom).
+def _solve_proton_states(
+    rp: FloatArray, potential: FloatArray, mass: float, n_states: int
+) -> tuple[FloatArray, FloatArray]:
+    """Solve for proton vibrational states on the grid ``rp`` (in angstrom).
 
-    Returns the lowest ``nstates`` energy levels in eV, the corresponding
-    normalized wave functions, and the raw FGH eigenvalues in Hartree.
+    ``potential`` is the potential energy on that grid in eV. Returns the
+    lowest ``n_states`` energy levels, in eV, and their normalized wave
+    functions, one per row.
     """
-    rp_in_Bohr = rp * A2Bohr
-    ngrid = len(rp_in_Bohr)
-    sgrid = rp_in_Bohr[-1] - rp_in_Bohr[0]
-
-    eigvals, eigvecs = fgh_1d(ngrid, sgrid, potential_eV * eV2Ha, mass)
-    energy_levels = eigvals[:nstates] * Ha2eV
-
-    unnormalized_wfcs = np.transpose(eigvecs)[:nstates]
-    wave_functions = np.array(
-        [wfci / np.sqrt(simpson(wfci * wfci, x=rp)) for wfci in unnormalized_wfcs]
+    rp_bohr = rp * ANGSTROM_TO_BOHR
+    eigenvalues, eigenvectors = fgh_1d(
+        len(rp_bohr),
+        rp_bohr[-1] - rp_bohr[0],
+        potential * EV_TO_HARTREE,
+        mass,
     )
-    return energy_levels, wave_functions, eigvals
+
+    energies = eigenvalues[:n_states] * HARTREE_TO_EV
+    wavefunctions = eigenvectors.T[:n_states]
+    norms = np.sqrt(simpson(wavefunctions * wavefunctions, x=rp, axis=1))
+    return energies, wavefunctions / norms[:, np.newaxis]

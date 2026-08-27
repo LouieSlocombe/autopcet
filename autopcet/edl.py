@@ -1,184 +1,198 @@
 """Electrical double layer model of the interfacial potential drop."""
 
-from typing import cast, overload
+from typing import Literal, cast
 
 import numpy as np
 from scipy.constants import N_A, elementary_charge
 from scipy.optimize import fsolve
 
-from ._types import FloatArray, _ScalarArrayFunction
-from .constants import A2Bohr, Bohr2A, Debye2au, Ha2eV, cm2A, eV2Ha, kB
+from ._types import FloatArray, ScalarOrArrayFunction
+from .constants import (
+    ANGSTROM_TO_BOHR,
+    BOHR_TO_ANGSTROM,
+    BOLTZMANN,
+    CM_TO_ANGSTROM,
+    DEBYE_TO_AU,
+    EV_TO_HARTREE,
+    HARTREE_TO_EV,
+    ROOM_TEMPERATURE,
+)
 from .utils import is_array, is_number
 
 
+def fermi_distribution[T: (float, FloatArray)](
+    energy: T, fermi_level: float = 0.0, temperature: float = ROOM_TEMPERATURE
+) -> T:
+    """Fermi-Dirac occupation of a state at ``energy`` (in eV)."""
+    occupation: T = 1 / (np.exp((energy - fermi_level) / BOLTZMANN / temperature) + 1)
+    return occupation
+
+
+def _langevin[T: (float, FloatArray)](x: T) -> T:
+    """Langevin function, the classical orientational average of a dipole."""
+    value: T = 1 / np.tanh(x) - 1 / x
+    return value
+
+
 def make_edl_model(
-    EvsSHE: float,
-    dIHL: float,
-    dOHL: float,
-    eps_IHL: float,
-    eps_st: float,
-    eps_op: float,
-    dipole: float | str,
-    rho_solvent: float,
-    m_solvent: float,
-    c_ions: float,
-    C_EDL: float,
-    PZFCvsSHE: float,
-    T: float = 298.15,
-    eta_Kirkwood: float = 1,
-    g_Kirkwood: float = 2.4,
-    print_data: bool = False,
-) -> _ScalarArrayFunction:
+    potential_vs_she: float,
+    d_ihl: float,
+    d_ohl: float,
+    eps_ihl: float,
+    eps_static: float,
+    eps_optical: float,
+    dipole: float | Literal["calculate"],
+    solvent_density: float,
+    solvent_molar_mass: float,
+    ion_concentration: float,
+    edl_capacitance: float,
+    pzfc_vs_she: float,
+    temperature: float = ROOM_TEMPERATURE,
+    eta_kirkwood: float = 1.0,
+    g_kirkwood: float = 2.4,
+    verbose: bool = False,
+) -> ScalarOrArrayFunction:
     """Build an electrical double layer (EDL) model of the potential drop.
 
-    Returns a function mapping the distance from the electrode (in Angstrom)
+    The electrode is described by its potential against the standard hydrogen
+    electrode and its potential of zero free charge, the compact layers by
+    their thicknesses (in angstrom) and permittivities, and the electrolyte by
+    its solvent density (g/cm^3), solvent molar mass (g/mol), and ion
+    concentration (mol/L). ``edl_capacitance`` is in microfarad/cm^2.
+
+    ``dipole`` is a solvent dipole moment in debye, or ``"calculate"`` to
+    derive one from the permittivities. Passing any ``eta_kirkwood`` other than
+    1 replaces it with the Kirkwood correlation factor built from
+    ``g_kirkwood``.
+
+    Returns a function mapping the distance from the electrode (in angstrom)
     to the potential drop (in V).
     """
-    EvsPZFC = EvsSHE - PZFCvsSHE
-    if print_data:
-        print(f"E vs. SHE = {EvsSHE:.2f} V")
+    thermal_energy_au = BOLTZMANN * temperature * EV_TO_HARTREE
+    potential_vs_pzfc = potential_vs_she - pzfc_vs_she
 
-    sigma_M = (C_EDL * EvsPZFC) / (elementary_charge * 1e6 * (cm2A * A2Bohr) ** 2)
+    if verbose:
+        print(f"E vs. SHE = {potential_vs_she:.2f} V")
 
-    if print_data:
-        print(f"sigma_M = {sigma_M:.6e} a.u.")
+    surface_charge = (edl_capacitance * potential_vs_pzfc) / (
+        elementary_charge * 1e6 * (CM_TO_ANGSTROM * ANGSTROM_TO_BOHR) ** 2
+    )
+    if verbose:
+        print(f"sigma_M = {surface_charge:.6e} a.u.")
 
-    n_solvent_au = rho_solvent / m_solvent * N_A / (cm2A * A2Bohr) ** 3
+    solvent_density_au = (
+        solvent_density
+        / solvent_molar_mass
+        * N_A
+        / (CM_TO_ANGSTROM * ANGSTROM_TO_BOHR) ** 3
+    )
 
     if dipole == "calculate":
-        if eta_Kirkwood != 1:
-            eta_Kirkwood = 2 * (2 * eps_st + eps_op) / (3 * g_Kirkwood * eps_st)
+        if eta_kirkwood != 1:
+            eta_kirkwood = (
+                2 * (2 * eps_static + eps_optical) / (3 * g_kirkwood * eps_static)
+            )
         dipole_au = (
             3
-            / (2 + eps_op)
+            / (2 + eps_optical)
             * np.sqrt(
                 3
-                * kB
-                * T
-                * eV2Ha
-                * (eps_st - eps_op)
-                * eta_Kirkwood
-                / (8 * np.pi * n_solvent_au)
+                * thermal_energy_au
+                * (eps_static - eps_optical)
+                * eta_kirkwood
+                / (8 * np.pi * solvent_density_au)
             )
         )
-        if print_data:
+        if verbose:
             print(f"dipole = {dipole_au:.6f} a.u.")
     elif is_number(dipole):
-        dipole_au = float(dipole) * Debye2au
+        dipole_au = float(dipole) * DEBYE_TO_AU
     else:
-        raise ValueError("'dipole' must be a number (in Debye) or 'calculate'.")
+        raise ValueError("'dipole' must be a number (in debye) or 'calculate'.")
 
-    n_ions_au = (c_ions * N_A * 1000) / (1e10 * A2Bohr) ** 3
-    dIHL_Bohr = dIHL * A2Bohr
-    dOHL_Bohr = dOHL * A2Bohr
+    ion_density_au = (ion_concentration * N_A * 1000) / (1e10 * ANGSTROM_TO_BOHR) ** 3
+    d_ihl_bohr = d_ihl * ANGSTROM_TO_BOHR
+    d_ohl_bohr = d_ohl * ANGSTROM_TO_BOHR
 
-    phi_OHP_au = (
+    phi_ohp_au = (
         2
-        * kB
-        * T
-        * eV2Ha
+        * thermal_energy_au
         * np.arcsinh(
-            sigma_M / np.sqrt((2 * kB * T * eV2Ha * eps_st * n_ions_au) / np.pi)
+            surface_charge
+            / np.sqrt((2 * thermal_energy_au * eps_static * ion_density_au) / np.pi)
         )
     )
-    phi_OHP = phi_OHP_au * Ha2eV
+    phi_ohp = phi_ohp_au * HARTREE_TO_EV
+    if verbose:
+        print(f"phi_OHP = {phi_ohp:.6f} V")
 
-    if print_data:
-        print(f"phi_OHP = {phi_OHP:.6f} V")
-
-    def langevin(u: float | FloatArray) -> float | FloatArray:
-        # cast: numpy ufuncs are typed as returning Any for scalar inputs
-        return cast("float | FloatArray", 1 / np.tanh(u) - 1 / u)
-
-    def eps_ohl(E_OHL_au: float | FloatArray) -> float | FloatArray:
-        return cast(
-            "float | FloatArray",
-            eps_op
-            + (4 * np.pi * (2 + eps_op))
-            / (3 * E_OHL_au)
-            * n_solvent_au
-            * dipole_au
-            * langevin(((2 + eps_op) * dipole_au * E_OHL_au) / (2 * kB * T * eV2Ha)),
+    def permittivity_ohl[T: (float, FloatArray)](field_au: T) -> T:
+        """Field-dependent permittivity of the outer Helmholtz layer."""
+        value: T = eps_optical + (4 * np.pi * (2 + eps_optical)) / (
+            3 * field_au
+        ) * solvent_density_au * dipole_au * _langevin(
+            ((2 + eps_optical) * dipole_au * field_au) / (2 * thermal_energy_au)
         )
+        return value
 
-    def ohl_field_equation(E_OHL_au: float | FloatArray) -> float | FloatArray:
-        return cast(
-            "float | FloatArray",
-            E_OHL_au * ((dIHL_Bohr * eps_ohl(E_OHL_au) / eps_IHL) + dOHL_Bohr)
-            - EvsPZFC * eV2Ha
-            + phi_OHP_au,
+    def residual(field_au: FloatArray) -> FloatArray:
+        """Zero when ``field_au`` reproduces the applied potential drop."""
+        mismatch: FloatArray = (
+            field_au
+            * ((d_ihl_bohr * permittivity_ohl(field_au) / eps_ihl) + d_ohl_bohr)
+            - potential_vs_pzfc * EV_TO_HARTREE
+            + phi_ohp_au
         )
+        return mismatch
 
-    E_solution_au = fsolve(ohl_field_equation, x0=0.1)
+    field_ohl_au = float(fsolve(residual, x0=0.1)[0])
+    field_ihl_au = float(field_ohl_au * permittivity_ohl(field_ohl_au) / eps_ihl)
 
-    E_OHL_au = float(E_solution_au[0])
-    E_OHL = E_OHL_au * Ha2eV / Bohr2A
+    field_ohl = field_ohl_au * HARTREE_TO_EV / BOHR_TO_ANGSTROM
+    field_ihl = field_ihl_au * HARTREE_TO_EV / BOHR_TO_ANGSTROM
 
-    E_IHL_au = float(E_OHL_au * eps_ohl(E_OHL_au) / eps_IHL)
-    E_IHL = E_IHL_au * Ha2eV / Bohr2A
-
-    if print_data:
-        print(f"eps_OHL = {eps_ohl(E_OHL_au):.6f}")
-        print(f"E_OHL = {E_OHL:.6f} V/A")
-        print(f"E_IHL = {E_IHL:.6f} V/A")
+    if verbose:
+        print(f"eps_OHL = {permittivity_ohl(field_ohl_au):.6f}")
+        print(f"E_OHL = {field_ohl:.6f} V/A")
+        print(f"E_IHL = {field_ihl:.6f} V/A")
         print()
 
-    kappa = float(np.sqrt((8 * np.pi * n_ions_au) / (eps_st * kB * T * eV2Ha)) / Bohr2A)
+    inverse_debye_length = float(
+        np.sqrt((8 * np.pi * ion_density_au) / (eps_static * thermal_energy_au))
+        / BOHR_TO_ANGSTROM
+    )
+    thermal_potential = BOLTZMANN * temperature
 
-    @overload
-    def edl_potential_drop(R: float) -> float: ...
-    @overload
-    def edl_potential_drop(R: FloatArray) -> FloatArray: ...
-    def edl_potential_drop(R: float | FloatArray) -> float | FloatArray:
-        if is_number(R):
-            R_num = float(R)
-            if R_num <= dIHL:
-                return EvsPZFC - R_num * E_IHL
-            elif (dIHL < R_num) and (R_num <= dIHL + dOHL):
-                return EvsPZFC - dIHL * E_IHL - (R_num - dIHL) * E_OHL
-            else:
-                return float(
-                    4
-                    * kB
-                    * T
-                    * np.arctanh(
-                        np.tanh(phi_OHP / (4 * kB * T))
-                        * np.exp(-kappa * (R_num - dIHL - dOHL))
-                    )
-                )
-        elif is_array(R):
-            R_arr = np.asarray(R, dtype=np.float64)
-            result = np.zeros(len(R_arr))
-            for i, Ri in enumerate(R_arr):
-                if Ri <= dIHL:
-                    result[i] = EvsPZFC - Ri * E_IHL
-                elif (dIHL < Ri) and (Ri <= dIHL + dOHL):
-                    result[i] = EvsPZFC - dIHL * E_IHL - (Ri - dIHL) * E_OHL
-                else:
-                    result[i] = (
-                        4
-                        * kB
-                        * T
-                        * np.arctanh(
-                            np.tanh(phi_OHP / (4 * kB * T))
-                            * np.exp(-kappa * (Ri - dIHL - dOHL))
-                        )
-                    )
-            return result
-        else:
-            raise TypeError("'R' must be a number or a 1D array.")
+    def drop_profile(distance: FloatArray) -> FloatArray:
+        """Potential drop across the compact layers and the diffuse layer."""
+        compact = distance <= d_ihl
+        diffuse = distance > d_ihl + d_ohl
+        outer_helmholtz = ~(compact | diffuse)
 
-    return edl_potential_drop
+        drop = np.empty_like(distance)
+        drop[compact] = potential_vs_pzfc - distance[compact] * field_ihl
+        drop[outer_helmholtz] = (
+            potential_vs_pzfc
+            - d_ihl * field_ihl
+            - (distance[outer_helmholtz] - d_ihl) * field_ohl
+        )
+        drop[diffuse] = (
+            4
+            * thermal_potential
+            * np.arctanh(
+                np.tanh(phi_ohp / (4 * thermal_potential))
+                * np.exp(-inverse_debye_length * (distance[diffuse] - d_ihl - d_ohl))
+            )
+        )
+        return drop
 
+    def potential_drop(distance: float | FloatArray) -> float | FloatArray:
+        if is_number(distance):
+            return float(drop_profile(np.array([float(cast("float", distance))]))[0])
+        if is_array(distance):
+            return drop_profile(np.asarray(distance, dtype=np.float64))
+        raise TypeError("'distance' must be a number or a 1D array.")
 
-@overload
-def fermi_distribution(E: float, E_Fermi: float = 0, T: float = 298.15) -> float: ...
-@overload
-def fermi_distribution(
-    E: FloatArray, E_Fermi: float = 0, T: float = 298.15
-) -> FloatArray: ...
-def fermi_distribution(
-    E: float | FloatArray, E_Fermi: float = 0, T: float = 298.15
-) -> float | FloatArray:
-    """Fermi-Dirac occupation of a state at energy ``E`` (in eV)."""
-    return cast("float | FloatArray", 1 / (np.exp((E - E_Fermi) / kB / T) + 1))
+    # cast: the union signature above cannot express that a scalar in gives a
+    # scalar out and an array in gives an array out, which the protocol does.
+    return cast("ScalarOrArrayFunction", potential_drop)

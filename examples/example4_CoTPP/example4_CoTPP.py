@@ -1,3 +1,8 @@
+"""Heterogeneous electrochemical PCET for CoTPP on graphene, combining the EDL
+model with a density-of-states average over the electrode levels."""
+
+from typing import TextIO
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -7,15 +12,15 @@ from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
 from autopcet import (
+    BOLTZMANN,
+    HARTREE_TO_EV,
+    KCAL_TO_EV,
+    MASS_DEUTERON,
+    MASS_PROTON,
     PCET,
-    Ha2eV,
     fermi_distribution,
     fit_poly6,
-    kB,
-    kcal2eV,
     make_edl_model,
-    massD,
-    massH,
 )
 
 # =========================================================================================
@@ -24,7 +29,7 @@ from autopcet import (
 # =========================================================================================
 
 # Donor-Acceptor distance values sampled in calculations
-Rs = np.array(
+distances = np.array(
     [
         3.057,
         3.157,
@@ -48,76 +53,81 @@ Rs = np.array(
     ]
 )
 
-Lambda = 0.83  # Units: eV. Inner sphere contribution only.
-Vel = 0.10  # Units: eV. Vel is not needed for KIE calculation.
-T = 300  # Units: K
+REORGANIZATION_ENERGY = 0.83  # eV, inner sphere contribution only
+ELECTRONIC_COUPLING = 0.10  # eV, not needed for the KIE
+TEMPERATURE = 300  # K
 
-# rho_M is the electronic density of states for a pristine graphene slab from a periodic planewave DFT calculation.
-rho_M = np.genfromtxt(
+# electronic density of states for a pristine graphene slab from a periodic
+# planewave DFT calculation, in N_states eV^-1 atom^-1
+graphene_dos = np.genfromtxt(
     "graphene_DOS_norm_gauss.csv", delimiter=",", skip_header=1
-)  # unit in N_{states} eV^-1 atom^-1
-epsilons = rho_M[
-    :, 0
-]  # Define the electronic energy levels that we will numerically integrate over
-rho_DOS = rho_M[:, 1]
+)
+# electronic energy levels to numerically integrate over
+electrode_energies = graphene_dos[:, 0]
+density_of_states = graphene_dos[:, 1]
 
-# In this work, Delta G0 is the free energy change associated with the reaction 1/2 H_2 + CoTPP --> CoHTPP.
-# Further corrections will be made based on the applied electrode potential with the EDL model.
+# Delta G0 is the free energy change of 1/2 H_2 + CoTPP --> CoHTPP. Further
+# corrections follow from the applied electrode potential via the EDL model.
+FREE_ENERGY_H = 0.55  # eV
+FREE_ENERGY_D = 0.55 - 0.009296397  # eV
 
-DeltaG0_H = 0.55  # eV
-DeltaG0_D = 0.55 - 0.009296397  # eV
-
-NStates = 10  # how many states to include in rate constant calculation
-NStates_to_show = 9  # how many states to plot/print
+N_STATES = 10  # how many states to include in the rate constant calculation
+STATES_TO_SHOW = 9  # how many states to print
 
 # ==========================================================================================
 # Define the electric double layer model and non-bonded parameters used for the work terms
 # ==========================================================================================
-dIHL = 3.6  # angstrom
-dOHL = 3.5  # angstrom
-eps_IHL = 2.7
-eps_st = 78.0
-eps_op = 1.78
-dipole = "calculate"
-rho_water = 0.9970470  # g/cm^3
-m_water = 18.01528  # g/mol
-c_ions = 0.5  # mol/L
-C_EDL = 15  # microFarad/cm^2
-PZFCvsSHE = 0.04  # V
+D_IHL = 3.6  # angstrom
+D_OHL = 3.5  # angstrom
+EPS_IHL = 2.7
+EPS_STATIC = 78.0
+EPS_OPTICAL = 1.78
+DIPOLE = "calculate"
+WATER_DENSITY = 0.9970470  # g/cm^3
+WATER_MOLAR_MASS = 18.01528  # g/mol
+ION_CONCENTRATION = 0.5  # mol/L
+EDL_CAPACITANCE = 15  # microfarad/cm^2
+PZFC_VS_SHE = 0.04  # V
 
-potentials_vs_SHE = np.arange(-1.0, 0.0, 0.2)
+
+def make_potential_drop(potential_vs_she: float):
+    """EDL potential drop as a function of distance, at a given electrode potential."""
+    return make_edl_model(
+        potential_vs_she,
+        D_IHL,
+        D_OHL,
+        EPS_IHL,
+        EPS_STATIC,
+        EPS_OPTICAL,
+        DIPOLE,
+        WATER_DENSITY,
+        WATER_MOLAR_MASS,
+        ION_CONCENTRATION,
+        EDL_CAPACITANCE,
+        PZFC_VS_SHE,
+        verbose=False,
+    )
+
+
+survey_potentials = np.arange(-1.0, 0.0, 0.2)
 colors = ["r", "darkorange", "g", "b", "purple"]
 
 fig = plt.figure(figsize=(6, 3.5))
 
-for i, EvsSHE in enumerate(potentials_vs_SHE):
-    EDL_potential_drop = make_edl_model(
-        EvsSHE,
-        dIHL,
-        dOHL,
-        eps_IHL,
-        eps_st,
-        eps_op,
-        dipole,
-        rho_water,
-        m_water,
-        c_ions,
-        C_EDL,
-        PZFCvsSHE,
-        print_data=False,
-    )
-    R = np.arange(0, 10, 0.1)
+for i, potential_vs_she in enumerate(survey_potentials):
+    potential_drop = make_potential_drop(potential_vs_she)
+    survey_grid = np.arange(0, 10, 0.1)
     plt.plot(
-        R,
-        EDL_potential_drop(R),
+        survey_grid,
+        potential_drop(survey_grid),
         "-",
-        label=f"$E = {EvsSHE:.1f}$V",
+        label=f"$E = {potential_vs_she:.1f}$V",
         lw=1.5,
         color=colors[i],
     )
 
-plt.axvline(x=dIHL, linewidth=1.5, color="k", linestyle=(0, (3, 3)))
-plt.axvline(x=dIHL + dOHL, linewidth=1.5, color="k", linestyle=(0, (3, 3)))
+plt.axvline(x=D_IHL, linewidth=1.5, color="k", linestyle=(0, (3, 3)))
+plt.axvline(x=D_IHL + D_OHL, linewidth=1.5, color="k", linestyle=(0, (3, 3)))
 
 plt.legend(loc=4, frameon=True, framealpha=1, fontsize=14)
 plt.xlim(0, 10)
@@ -130,277 +140,241 @@ plt.tight_layout()
 plt.savefig("EDL_model.png", dpi=300)
 
 
-# This defines the Buckingham potentials using the coefficients determined from fitting DFT data.
-# Reactant: CoTPP + H_3O^+ non-bonded interaction
-def reactant_work(Rs):
-    return kcal2eV * (
-        692272.09 * np.exp((-1 * Rs) / 0.25730094) - 3699.5922 / (Rs**6)
-    )  # Units: eV
+# Buckingham potentials using coefficients determined from fitting DFT data.
+def reactant_work(distance):
+    """CoTPP + H_3O^+ non-bonded interaction, in eV."""
+    return KCAL_TO_EV * (
+        692272.09 * np.exp(-distance / 0.25730094) - 3699.5922 / distance**6
+    )
 
 
-# Product: CoHTPP + H_2O non-bonded interaction
-def product_work(Rs):
-    return kcal2eV * (
-        54305.39 * np.exp((-1 * Rs) / 0.39709137) - 19539.245 / (Rs**6)
-    )  # Units: eV
+def product_work(distance):
+    """CoHTPP + H_2O non-bonded interaction, in eV."""
+    return KCAL_TO_EV * (
+        54305.39 * np.exp(-distance / 0.39709137) - 19539.245 / distance**6
+    )
 
 
-# Define a general Tafel equation where the prefactor is alpha*F/RT and b is ln[TOF(E0)]
-# This is used in fitting the ln[k_H](E) curve to obtain the transfer coefficient, alpha
-def Tafel(E_appl, prefactor, b):
-    return -1 * prefactor * E_appl + b
+def tafel(applied_potential, prefactor, intercept):
+    """General Tafel equation; the prefactor is alpha*F/RT.
+
+    Fitting ln[k_H](E) with this yields the transfer coefficient alpha.
+    """
+    return -prefactor * applied_potential + intercept
 
 
 # =========================================================================================
 # Read data from files
 # =========================================================================================
 
-ReacProtonPot_R = []
-ProdProtonPot_R = []
+reactant_potentials = []
+product_potentials = []
 
 # read proton potentials from .csv files
 # the proton potentials are directly from the published work
-for R in Rs:
-    dat_react = pd.read_csv(
-        f"proton_potentials/rDA_{R:.3f}_R.csv", sep=",", header=0, engine="python"
+for distance in distances:
+    reactant = pd.read_csv(
+        f"proton_potentials/rDA_{distance:.3f}_R.csv",
+        sep=",",
+        header=0,
+        engine="python",
     )
-    dat_prod = pd.read_csv(
-        f"proton_potentials/rDA_{R:.3f}_P.csv", sep=",", header=0, engine="python"
+    product = pd.read_csv(
+        f"proton_potentials/rDA_{distance:.3f}_P.csv",
+        sep=",",
+        header=0,
+        engine="python",
     )
-    rp_react_tmp = dat_react["x"]
-    E_react_tmp = dat_react["Reactant"]
-    rp_prod_tmp = dat_prod["x"]
-    E_prod_tmp = dat_prod["Product"]
 
     # the energy unit in the .csv files is Hartree atomic units, convert it to eV
-    E_react_tmp *= Ha2eV
-    E_prod_tmp *= Ha2eV
+    reactant_energies = reactant["Reactant"] * HARTREE_TO_EV
+    product_energies = product["Product"] * HARTREE_TO_EV
 
-    # smooth the data by fitting to polynomials
-    # for these data set, fitting to polynomial is better than spline
-    # 6th order polynomial is used for that set of data
-    ReacProtonPot_R.append(fit_poly6(rp_react_tmp, E_react_tmp))
-
-    ProdProtonPot_R.append(fit_poly6(rp_prod_tmp, E_prod_tmp))
+    # smooth the data by fitting to polynomials; for these data sets a 6th order
+    # polynomial fits better than a spline
+    reactant_potentials.append(fit_poly6(reactant["x"], reactant_energies))
+    product_potentials.append(fit_poly6(product["x"], product_energies))
 
 # =========================================================================================
-# Calculate the KIE of electrochemical PCET of CoTPP at different R and applied potentials E
+# Calculate the KIE of electrochemical PCET of CoTPP at different R and applied potentials
 # =========================================================================================
 
 
-kH_R = np.zeros(len(Rs))
-kD_R = np.zeros(len(Rs))
+def write_contribution_table(stream: TextIO, system: PCET, isotope: str) -> None:
+    """Tabulate how much each pair of vibronic states contributes to the rate."""
+    percentage = 100 * system.rate_contributions / system.total_rate_constant
 
-RTF = 8.31446 * T / 96485.33  # Units: J/C = V
-pH = 0  # This helps convert from the RHE to SHE scale because the potential drop is defined on the SHE scale
+    stream.write(f"\n{isotope}\n" + "=" * 125 + "\n")
+    stream.write(
+        "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\t"
+        "Delta G^#_uv / eV\t% Contrib.\n"
+    )
+    stream.write("-" * 125 + "\n")
+    for u in range(STATES_TO_SHOW):
+        for v in range(STATES_TO_SHOW):
+            stream.write(
+                f"({u:d}, {v:d})\t\t{system.populations[u]:.3e}\t\t"
+                f"{system.overlaps[u, v] ** 2:.3e}\t\t"
+                f"{system.pair_free_energies[u, v]:+.3f}\t\t\t"
+                f"{system.pair_activation_energies[u, v]:.3f}\t\t\t"
+                f"{percentage[u, v]:.1f}\n"
+            )
+    stream.write("=" * 125 + "\n\n")
 
-# Build the applied potential list
-E_appl_list = np.arange(-0.7, -0.49, 0.02)
 
-# Extract extrema of sampled proton-donor acceptor distances
-R_min = Rs[0]
-R_max = Rs[-1]
+def make_system(index: int, free_energy: float) -> PCET:
+    """A PCET system for the proton potentials sampled at distance ``index``."""
+    return PCET(
+        reactant_potentials[index],
+        product_potentials[index],
+        reaction_free_energy=free_energy,
+        reorganization_energy=REORGANIZATION_ENERGY,
+        electronic_coupling=ELECTRONIC_COUPLING,
+        n_states=N_STATES,
+        r_min=-1.5,
+        r_max=1.5,
+    )
 
-# Build the proton donor-accceptor distance grid based on the extrema of the sampled distances
-R_fine_grid = np.linspace(R_min, R_max, 200)
 
-kHD_of_E = np.zeros((3, len(E_appl_list)))
+rates_h = np.zeros(len(distances))
+rates_d = np.zeros(len(distances))
+
+VOLT_PER_DECADE = 8.31446 * TEMPERATURE / 96485.33  # RT/F, units J/C = V
+PH = 0  # converts between the RHE and SHE scales, on which the drop is defined
+
+# the occupied density of states does not depend on R or the applied potential
+occupied_dos = density_of_states * fermi_distribution(
+    electrode_energies, temperature=TEMPERATURE
+)
+
+applied_potentials = np.arange(-0.7, -0.49, 0.02)
+
+# proton donor-acceptor distance grid spanning the sampled distances
+fine_grid = np.linspace(distances[0], distances[-1], 200)
+
+log_rates_h = np.zeros(len(applied_potentials))
+log_rates_d = np.zeros(len(applied_potentials))
 
 # Truncate the rate-constant log and write its header once, up front; every
 # applied potential below appends its own block of rows to it.
-with open("kPCET_data.log", "w") as outfp:
-    outfp.write("# E / V\t R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
+with open("kPCET_data.log", "w") as log:
+    log.write("# E / V\t R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
 
 # Loop over applied potential
-for n, E_appl in enumerate(E_appl_list):
-    # Pre-generate the potential drop function
-    EDL_potential_drop = make_edl_model(
-        E_appl,
-        dIHL,
-        dOHL,
-        eps_IHL,
-        eps_st,
-        eps_op,
-        dipole,
-        rho_water,
-        m_water,
-        c_ions,
-        C_EDL,
-        PZFCvsSHE,
-        print_data=False,
-    )
+for n, applied_potential in enumerate(applied_potentials):
+    potential_drop = make_potential_drop(applied_potential)
 
     # Loop over proton-donor acceptor distances
-    for i, R in enumerate(Rs):
-        react_work = reactant_work(R) + EDL_potential_drop(R)
-        prod_work = product_work(R)
+    for i, distance in enumerate(distances):
+        work_reactant = reactant_work(distance) + potential_drop(distance)
+        work_product = product_work(distance)
 
-        print(f"Calculating... R = {R:.3f}A")
-        # DeltaG is set per electrode energy level inside the epsilon loop below;
+        print(f"Calculating... R = {distance:.3f}A")
+        # reaction_free_energy is set per electrode level inside the loop below;
         # these instances just need a placeholder to be constructed with.
-        systemH = PCET(
-            ReacProtonPot_R[i],
-            ProdProtonPot_R[i],
-            DeltaG=DeltaG0_H,
-            Lambda=Lambda,
-            Vel=Vel,
-            NStates=NStates,
-            rmin=-1.5,
-            rmax=1.5,
-        )
-        systemD = PCET(
-            ReacProtonPot_R[i],
-            ProdProtonPot_R[i],
-            DeltaG=DeltaG0_D,
-            Lambda=Lambda,
-            Vel=Vel,
-            NStates=NStates,
-            rmin=-1.5,
-            rmax=1.5,
-        )
+        system_h = make_system(i, FREE_ENERGY_H)
+        system_d = make_system(i, FREE_ENERGY_D)
 
-        kH_epsilon = np.zeros(epsilons.shape[0])
-        kD_epsilon = np.zeros(epsilons.shape[0])
-        DOS = np.zeros(epsilons.shape[0])
-        for j, epsilon in enumerate(epsilons):
+        rates_h_of_energy = np.zeros(len(electrode_energies))
+        rates_d_of_energy = np.zeros(len(electrode_energies))
+
+        # shifts shared by every electrode level at this R and applied potential
+        work_shift = (
+            applied_potential
+            + work_product
+            - work_reactant
+            + VOLT_PER_DECADE * np.log(10) * PH
+        )
+        deuterium_shift = work_shift - VOLT_PER_DECADE * np.log(10) * (14.0 - 14.87)
+
+        for j, electrode_energy in enumerate(electrode_energies):
             # update Delta G for a given epsilon
-            DeltaGH = (
-                DeltaG0_H
-                + E_appl
-                + prod_work
-                - react_work
-                - epsilon
-                + RTF * np.log(10) * pH
+            system_h.reaction_free_energy = (
+                FREE_ENERGY_H + work_shift - electrode_energy
+            )
+            system_d.reaction_free_energy = (
+                FREE_ENERGY_D + deuterium_shift - electrode_energy
             )
 
-            DeltaGD = (
-                DeltaG0_D
-                + E_appl
-                + prod_work
-                - react_work
-                - epsilon
-                + RTF * np.log(10) * pH
-                - RTF * np.log(10) * (14.0 - 14.87)
+            rates_h_of_energy[j] = system_h.calculate(
+                mass=MASS_PROTON, temperature=TEMPERATURE, reuse_states=True
+            )
+            rates_d_of_energy[j] = system_d.calculate(
+                mass=MASS_DEUTERON, temperature=TEMPERATURE, reuse_states=True
             )
 
-            systemH.set_parameters(DeltaG=DeltaGH)
-            kH_epsilon[j] = systemH.calculate(
-                mass=massH, T=T, reuse_saved_proton_states=True
-            )
-            systemD.set_parameters(DeltaG=DeltaGD)
-            kD_epsilon[j] = systemD.calculate(
-                mass=massD, T=T, reuse_saved_proton_states=True
-            )
-
-            if np.abs(E_appl - -0.66) <= 1e-3 and np.abs(epsilon - 0.005) <= 1e-3:
-                # print a table for these quantities
-
-                # write to a file
-                with open(f"rate_constant_contribution_R{R:.3f}A.log", "w") as outfp:
-                    # for H
-                    Pu = systemH.get_reactant_state_distribution()
-                    Suv = systemH.get_proton_overlap_matrix()
-                    dGuv = systemH.get_reaction_free_energy_matrix()
-                    dGa_uv = systemH.get_activation_free_energy_matrix()
-                    kuv = systemH.get_rate_contribution_matrix()
-                    k_tot = systemH.get_total_rate_constant()
-                    percentage_contribution = kuv / k_tot
-
-                    outfp.write(f"\nR = {R:.3f}A, epsilon = 0.005, E_appl = -0.66\n")
-                    outfp.write("\nH\n" + "=" * 125 + "\n")
-                    outfp.write(
-                        "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n"
+            if (
+                np.abs(applied_potential - -0.66) <= 1e-3
+                and np.abs(electrode_energy - 0.005) <= 1e-3
+            ):
+                with open(
+                    f"rate_constant_contribution_R{distance:.3f}A.log", "w"
+                ) as log:
+                    log.write(
+                        f"\nR = {distance:.3f}A, epsilon = 0.005, E_appl = -0.66\n"
                     )
-                    outfp.write("-" * 125 + "\n")
-                    for u in range(NStates_to_show):
-                        for v in range(NStates_to_show):
-                            outfp.write(
-                                f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n"
-                            )
-                    outfp.write("=" * 125 + "\n\n")
-
-                    # for D
-                    Pu = systemD.get_reactant_state_distribution()
-                    Suv = systemD.get_proton_overlap_matrix()
-                    dGuv = systemD.get_reaction_free_energy_matrix()
-                    dGa_uv = systemD.get_activation_free_energy_matrix()
-                    kuv = systemD.get_rate_contribution_matrix()
-                    k_tot = systemD.get_total_rate_constant()
-                    percentage_contribution = kuv / k_tot
-
-                    outfp.write("\nD\n" + "=" * 125 + "\n")
-                    outfp.write(
-                        "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.\n"
-                    )
-                    outfp.write("-" * 125 + "\n")
-                    for u in range(NStates_to_show):
-                        for v in range(NStates_to_show):
-                            outfp.write(
-                                f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v] * 100:.1f}\n"
-                            )
-                    outfp.write("=" * 125 + "\n\n")
-            # Multiply the DOS at a given epsilon by the Fermi-Dirac distribution at a given temperature
-            DOS[j] = rho_DOS[j] * fermi_distribution(epsilon, T=T)
+                    write_contribution_table(log, system_h, "H")
+                    write_contribution_table(log, system_d, "D")
 
         # Numerical integration over the electrode energy levels
-        kH_R[i] = simpson(DOS * kH_epsilon, x=epsilons)
-        kD_R[i] = simpson(DOS * kD_epsilon, x=epsilons)
+        rates_h[i] = simpson(occupied_dos * rates_h_of_energy, x=electrode_energies)
+        rates_d[i] = simpson(occupied_dos * rates_d_of_energy, x=electrode_energies)
 
     # Append the PCET rate constants for H and D at each R to the log
-    with open("kPCET_data.log", "a") as outfp:
-        for i, R in enumerate(Rs):
-            outfp.write(f"{E_appl:.2f}\t\t{R:.3f}\t\t{kH_R[i]:.4e}\t{kD_R[i]:.4e}\n")
+    with open("kPCET_data.log", "a") as log:
+        for distance, rate_h, rate_d in zip(distances, rates_h, rates_d, strict=True):
+            log.write(
+                f"{applied_potential:.2f}\t\t{distance:.3f}\t\t{rate_h:.4e}\t{rate_d:.4e}\n"
+            )
 
     # =========================================================================================
-    # Calculate P(R)
+    # Calculate P(R): the potential-dependent concentration of proton donors at R
     # =========================================================================================
 
-    # Calculate the potential dependent concentration of proton donors at point R
-    kBT = kB * T
-    c0 = 1  # molar, for pH = 0 conditions
-    W_of_R = reactant_work(R_fine_grid) + EDL_potential_drop(R_fine_grid)
-    PR = (np.exp(-1 * (W_of_R) / kBT)) * c0
+    BULK_CONCENTRATION = 1  # molar, for pH = 0 conditions
+    work_of_distance = reactant_work(fine_grid) + potential_drop(fine_grid)
+    distribution = (
+        np.exp(-work_of_distance / (BOLTZMANN * TEMPERATURE)) * BULK_CONCENTRATION
+    )
 
     # =========================================================================================
     # Thermally average the PCET rate constant over R
     # =========================================================================================
 
-    # the integration should be from 0 to infinity, but in reality we perform the integral in the interval that the integrand reaches zero at both limits
-
-    # Directly interpolate k
-    kH_fine_grid = interp1d(Rs, kH_R, kind="linear", fill_value="extrapolate")(
-        R_fine_grid
-    )
-    kD_fine_grid = interp1d(Rs, kD_R, kind="linear", fill_value="extrapolate")(
-        R_fine_grid
-    )
+    # the integration should run from 0 to infinity, but in practice we integrate
+    # over the interval where the integrand has reached zero at both limits
+    rates_h_fine = interp1d(
+        distances, rates_h, kind="linear", fill_value="extrapolate"
+    )(fine_grid)
+    rates_d_fine = interp1d(
+        distances, rates_d, kind="linear", fill_value="extrapolate"
+    )(fine_grid)
 
     # perform thermal average and print the final results
-    Rmax_H = R_fine_grid[find_peaks(PR * kH_fine_grid)[0]]
-    Rmax_D = R_fine_grid[find_peaks(PR * kD_fine_grid)[0]]
+    dominant_distance_h = fine_grid[find_peaks(distribution * rates_h_fine)[0]]
+    dominant_distance_d = fine_grid[find_peaks(distribution * rates_d_fine)[0]]
 
-    ave_kH_of_E_appl = simpson(PR * kH_fine_grid, x=R_fine_grid)
-    ave_kD_of_E_appl = simpson(PR * kD_fine_grid, x=R_fine_grid)
+    average_rate_h = simpson(distribution * rates_h_fine, x=fine_grid)
+    average_rate_d = simpson(distribution * rates_d_fine, x=fine_grid)
 
     print()
-    print(f"Applied Potential= {E_appl:.2f} V vs SHE")
-    print(f"Dominant R for H = {Rmax_H[0]:.2f}A")
-    print(f"Dominant R for D = {Rmax_D[0]:.2f}A")
-    print(f"k_H_tot = {ave_kH_of_E_appl:.4e} s^-1")
-    print(f"k_D_tot = {ave_kD_of_E_appl:.4e} s^-1")
-    print(f"KIE = {ave_kH_of_E_appl / ave_kD_of_E_appl:.2f}")
+    print(f"Applied Potential= {applied_potential:.2f} V vs SHE")
+    print(f"Dominant R for H = {dominant_distance_h[0]:.2f}A")
+    print(f"Dominant R for D = {dominant_distance_d[0]:.2f}A")
+    print(f"k_H_tot = {average_rate_h:.4e} s^-1")
+    print(f"k_D_tot = {average_rate_d:.4e} s^-1")
+    print(f"KIE = {average_rate_h / average_rate_d:.2f}")
     print()
 
-    kHD_of_E[0][n] = E_appl
-    kHD_of_E[1][n] = np.log(ave_kH_of_E_appl)
-    kHD_of_E[2][n] = np.log(ave_kD_of_E_appl)
+    log_rates_h[n] = np.log(average_rate_h)
+    log_rates_d[n] = np.log(average_rate_d)
 
-Tafel_params_H, _ = curve_fit(Tafel, kHD_of_E[0], kHD_of_E[1])
-Tafel_params_D, _ = curve_fit(Tafel, kHD_of_E[0], kHD_of_E[2])
+tafel_h = curve_fit(tafel, applied_potentials, log_rates_h)[0]
+tafel_d = curve_fit(tafel, applied_potentials, log_rates_d)[0]
 
 # Remove the factor of F/RT from the Tafel prefactor
-alphaH = Tafel_params_H[0] * RTF
-alphaD = Tafel_params_D[0] * RTF
+transfer_coefficient_h = tafel_h[0] * VOLT_PER_DECADE
+transfer_coefficient_d = tafel_d[0] * VOLT_PER_DECADE
 
-print(f"The transfer coefficient for protons is: {alphaH:.4f}")
-print(f"The transfer coefficient for deuterons is: {alphaD:.4f}")
+print(f"The transfer coefficient for protons is: {transfer_coefficient_h:.4f}")
+print(f"The transfer coefficient for deuterons is: {transfer_coefficient_d:.4f}")

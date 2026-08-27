@@ -11,22 +11,22 @@ import numpy as np
 from ase.io import read
 
 # xyz files with the proton optimized in the reactant and product states
-reac_xyz = "averaged_optH_reac.xyz"
-prod_xyz = "averaged_optH_prod.xyz"
+REACTANT_XYZ = "averaged_optH_reac.xyz"
+PRODUCT_XYZ = "averaged_optH_prod.xyz"
 
-# atomic index (start with 0) of the proton in these xyz files
-proton_index = 1
+# atomic index (starting from 0) of the proton in these xyz files
+PROTON_INDEX = 1
 
-# define the state (reactant or product), charge and multiplicity
-state = "reactant"
-charge = 0
-multiplicity = 1
+# the state (reactant or product), charge, and multiplicity
+STATE = "reactant"
+CHARGE = 0
+MULTIPLICITY = 1
 
 # number of grid points
-N = 20
+N_POINTS = 20
 
-# change the level of theory or add empirical dispersion/implicit solvent as needed,
-heading = """%chk={state}.chk
+# change the level of theory or add empirical dispersion/implicit solvent as needed
+HEADER_TEMPLATE = """%chk={state}.chk
 %nprocshared=24
 %mem=60GB
 # Nosymm B3LYP/6-31+g(d,p)
@@ -38,43 +38,50 @@ heading = """%chk={state}.chk
 
 
 def main():
-    struct1 = read(reac_xyz)
-    struct2 = read(prod_xyz)
+    reactant = read(REACTANT_XYZ)
+    product = read(PRODUCT_XYZ)
 
-    pos1 = struct1.get_positions()
-    pos2 = struct2.get_positions()
+    reactant_positions = reactant.get_positions()
+    product_positions = product.get_positions()
 
-    # calculating the proton axis, which passes through the two optimized proton positions in the xyz files
-    rPT = pos2[proton_index] - pos1[proton_index]
-    dPT = np.linalg.norm(rPT)
-    nPT = rPT / dPT
-    center = 0.5 * (pos1[proton_index] + pos2[proton_index])
-
-    # To effectively generate the proton potential, we need to move the proton very close to the donor or the acceptor
-    # the default scan range is 1.7 times the distance between the equilibrium proton positions on its donor and acceptor
-    # However, for very small R values, this is not sufficient. The scan range for this case is set to be 1 A
-    dp_center = np.linspace(
-        np.min([-0.5, -1.7 * dPT / 2]), np.max([0.5, 1.7 * dPT / 2]), N
+    # the proton axis passes through the two optimized proton positions
+    proton_shift = product_positions[PROTON_INDEX] - reactant_positions[PROTON_INDEX]
+    transfer_distance = np.linalg.norm(proton_shift)
+    axis = proton_shift / transfer_distance
+    midpoint = 0.5 * (
+        reactant_positions[PROTON_INDEX] + product_positions[PROTON_INDEX]
     )
 
-    for i in range(N):
+    # To generate the proton potential the proton has to come very close to the
+    # donor and the acceptor, so the default scan range is 1.7 times the distance
+    # between its equilibrium positions. That is not enough for very small R, so
+    # the range is never shorter than 1 A in total.
+    offsets = np.linspace(
+        np.min([-0.5, -1.7 * transfer_distance / 2]),
+        np.max([0.5, 1.7 * transfer_distance / 2]),
+        N_POINTS,
+    )
+
+    for i, offset in enumerate(offsets):
         os.makedirs(f"{i:02d}", exist_ok=True)
-        with open(f"{i:02d}/{state}_sp.gjf", "w") as outfp:
-            outfp.write(
-                heading.format(state=state, charge=charge, multiplicity=multiplicity)
+        with open(f"{i:02d}/{STATE}_sp.gjf", "w") as gaussian_input:
+            gaussian_input.write(
+                HEADER_TEMPLATE.format(
+                    state=STATE, charge=CHARGE, multiplicity=MULTIPLICITY
+                )
             )
 
-            rp = dp_center[i] * nPT + center
+            structure = reactant.copy()
+            positions = structure.get_positions()
+            positions[PROTON_INDEX] = offset * axis + midpoint
+            structure.set_positions(positions)
 
-            struct_tmp = struct1.copy()
-            pos_tmp = struct_tmp.get_positions()
-            pos_tmp[proton_index] = rp
-            struct_tmp.set_positions(pos_tmp)
-
-            for atom in struct_tmp:
-                x, y, z = pos_tmp[atom.index]
-                outfp.write(f"{atom.symbol}      {x:.8f}   {y:.8f}   {z:.8f}\n")
-            outfp.write("\n")
+            for atom in structure:
+                x, y, z = positions[atom.index]
+                gaussian_input.write(
+                    f"{atom.symbol}      {x:.8f}   {y:.8f}   {z:.8f}\n"
+                )
+            gaussian_input.write("\n")
 
 
 if __name__ == "__main__":

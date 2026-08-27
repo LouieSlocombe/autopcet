@@ -56,38 +56,56 @@ python -m pip install --group dev -e .
 
 ## Quick start
 
-Fit tabulated diabatic proton potentials (proton coordinate in Å, energies in
-eV), set up the golden-rule rate model, and compute rate constants and the KIE:
+Fit tabulated diabatic proton potentials, set up the golden-rule rate model,
+and compute rate constants and the KIE:
 
 ```python
-from autopcet import PCET, fit_poly8, massD, massH
+from autopcet import PCET, MASS_DEUTERON, MASS_PROTON, fit_poly8
 
-# rp, E_reac, E_prod: 1D arrays with the tabulated diabatic proton potentials
-ReacProtonPot = fit_poly8(rp, E_reac)
-ProdProtonPot = fit_poly8(rp, E_prod)
+# rp, reactant_energies, product_energies: 1D arrays holding the tabulated
+# diabatic proton potentials
+reactant_potential = fit_poly8(rp, reactant_energies)
+product_potential = fit_poly8(rp, product_energies)
 
-# reaction free energy, reorganization energy, and electronic coupling in eV
-system = PCET(ReacProtonPot, ProdProtonPot, DeltaG=-0.50, Lambda=1.00, Vel=0.0434)
+system = PCET(
+    reactant_potential,
+    product_potential,
+    reaction_free_energy=-0.50,
+    reorganization_energy=1.00,
+    electronic_coupling=0.0434,
+)
 
-k_H = system.calculate(massH, T=298)
-k_D = system.calculate(massD, T=298)
-print(f"k(H) = {k_H:.2e} s^-1, KIE = {k_H / k_D:.2f}")
+rate_h = system.calculate(MASS_PROTON, temperature=298)
+rate_d = system.calculate(MASS_DEUTERON, temperature=298)
+print(f"k(H) = {rate_h:.2e} s^-1, KIE = {rate_h / rate_d:.2f}")
 ```
 
-The per-state populations, overlaps, free energies, and rate contributions are
-available through the `get_*` methods after `calculate` has run.
+Once `calculate` has run, the per-state results are plain attributes:
+`populations`, `overlaps`, `pair_free_energies`, `pair_activation_energies`,
+`rate_contributions`, and `total_rate_constant`. The thermodynamic parameters
+are attributes too, so a sweep just reassigns one and calls `calculate` again
+with `reuse_states=True` to keep the proton states it already solved for.
 
 To quantify the (non)adiabaticity of a reaction from the same inputs:
 
 ```python
-from autopcet import KappaCoupling, massH
+from autopcet import KappaCoupling, MASS_PROTON
 
-# potentials tabulated on a 2^n grid, electronic coupling Vel in eV
-system = KappaCoupling(rp, E_reac, E_prod, Vel)
-system.calculate(massH)
-tau_e, tau_p, p, kappa = system.get_nonadiabaticity_parameters()
-V_sc, V_nad, V_ad = system.get_vibronic_couplings()
+# potentials tabulated on a 2^n grid, electronic coupling in eV
+system = KappaCoupling(rp, reactant_energies, product_energies, electronic_coupling)
+system.calculate(MASS_PROTON)
+
+print(system.tau_electron, system.tau_proton, system.adiabaticity, system.kappa)
+print(system.v_semiclassical, system.v_nonadiabatic, system.v_adiabatic)
 ```
+
+### Units and naming
+
+Energies are in electronvolts, lengths in ångström, and particle masses in
+electron masses (atomic units), unless a name says otherwise. Unit conversions
+are exported as named constants (`KCAL_TO_EV`, `HARTREE_TO_EV`,
+`ANGSTROM_TO_BOHR`, ...), as are the physical constants (`BOLTZMANN`, `HBAR`,
+`MASS_PROTON`, `MASS_DEUTERON`, ...).
 
 ## Examples
 

@@ -3,166 +3,186 @@
 import numpy as np
 import pytest
 from example1_data import (
-    DELTA_G,
-    E_PROD_DATA,
-    E_REAC_DATA,
-    LAMBDA,
-    RP_DATA,
+    ELECTRONIC_COUPLING,
+    PRODUCT_ENERGIES,
+    REACTANT_ENERGIES,
+    REACTION_FREE_ENERGY,
+    REORGANIZATION_ENERGY,
+    RP_GRID,
     TEMPERATURE,
-    VEL,
 )
 from scipy.integrate import simpson
 
-from autopcet import PCET, massD, massH
-from autopcet._types import PotentialFunction
+from autopcet import MASS_DEUTERON, MASS_PROTON, PCET
+from autopcet._types import FitMethod, PotentialFunction
 
 
 @pytest.fixture
 def system(
-    reac_proton_pot: PotentialFunction, prod_proton_pot: PotentialFunction
+    reactant_potential: PotentialFunction, product_potential: PotentialFunction
 ) -> PCET:
     """A fresh PCET system set up exactly as in example 1."""
-    return PCET(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA, Vel=VEL)
+    return PCET(
+        reactant_potential,
+        product_potential,
+        REACTION_FREE_ENERGY,
+        REORGANIZATION_ENERGY,
+        electronic_coupling=ELECTRONIC_COUPLING,
+    )
 
 
 def test_rate_constant_is_positive_and_kie_is_normal(system: PCET) -> None:
     """The example 1 system reproduces its rate constant and H/D KIE."""
-    k_tot_h = system.calculate(massH, T=TEMPERATURE)
-    assert k_tot_h == system.get_total_rate_constant()
+    rate_h = system.calculate(MASS_PROTON, temperature=TEMPERATURE)
+    assert rate_h == system.total_rate_constant
 
-    k_tot_d = system.calculate(massD, T=TEMPERATURE)
-    assert k_tot_d == system.get_total_rate_constant()
+    rate_d = system.calculate(MASS_DEUTERON, temperature=TEMPERATURE)
+    assert rate_d == system.total_rate_constant
 
     # regression values from running the example 1 workflow
-    assert k_tot_h == pytest.approx(2.337e8, rel=0.05)
-    assert k_tot_h / k_tot_d == pytest.approx(2.72, rel=0.05)
+    assert rate_h == pytest.approx(2.337e8, rel=0.05)
+    assert rate_h / rate_d == pytest.approx(2.72, rel=0.05)
 
 
 def test_reactant_state_distribution_is_a_boltzmann_distribution(
     system: PCET,
 ) -> None:
     """State populations are normalized and decrease with energy."""
-    system.calculate(massH, T=TEMPERATURE)
-    pu = system.get_reactant_state_distribution()
+    system.calculate(MASS_PROTON, temperature=TEMPERATURE)
+    populations = system.populations
 
-    assert pu.shape == (system.NStates,)
-    assert np.sum(pu) == pytest.approx(1.0)
-    assert np.all(np.diff(pu) <= 0)
+    assert populations.shape == (system.n_states,)
+    assert np.sum(populations) == pytest.approx(1.0)
+    assert np.all(np.diff(populations) <= 0)
 
 
 def test_proton_states_are_normalized(system: PCET) -> None:
     """Vibrational energies are sorted and wave functions are normalized."""
-    system.calculate(massH, T=TEMPERATURE)
+    system.calculate(MASS_PROTON, temperature=TEMPERATURE)
 
-    for energies, wfcs in (
-        system.get_reactant_proton_states(),
-        system.get_product_proton_states(),
+    for energies, wavefunctions in (
+        (system.reactant_energies, system.reactant_wavefunctions),
+        (system.product_energies, system.product_wavefunctions),
     ):
-        assert energies.shape == (system.NStates,)
-        assert wfcs.shape == (system.NStates, len(system.rp))
+        assert energies.shape == (system.n_states,)
+        assert wavefunctions.shape == (system.n_states, len(system.rp))
         assert np.all(np.diff(energies) >= 0)
-        norms = simpson(wfcs**2, x=system.rp, axis=1)
+        norms = simpson(wavefunctions**2, x=system.rp, axis=1)
         np.testing.assert_allclose(norms, 1.0, rtol=1e-8)
 
 
 def test_overlap_matrix_is_bounded(system: PCET) -> None:
     """Overlaps between normalized states cannot exceed one."""
-    system.calculate(massH, T=TEMPERATURE)
-    suv = system.get_proton_overlap_matrix()
+    system.calculate(MASS_PROTON, temperature=TEMPERATURE)
 
-    assert suv.shape == (system.NStates, system.NStates)
-    assert np.all(np.abs(suv) <= 1.0 + 1e-6)
+    assert system.overlaps.shape == (system.n_states, system.n_states)
+    assert np.all(np.abs(system.overlaps) <= 1.0 + 1e-6)
 
 
 def test_free_energy_matrices_follow_their_definitions(system: PCET) -> None:
-    """dG_uv and the activation matrix match their analytic expressions."""
-    system.calculate(massH, T=TEMPERATURE)
-    dguv = system.get_reaction_free_energy_matrix()
-    e_reac, _ = system.get_reactant_proton_states()
-    e_prod, _ = system.get_product_proton_states()
+    """The pair free energies and activation energies match their definitions."""
+    system.calculate(MASS_PROTON, temperature=TEMPERATURE)
+    pair_free_energies = system.pair_free_energies
 
-    assert dguv[0, 0] == pytest.approx(DELTA_G)
+    assert pair_free_energies[0, 0] == pytest.approx(REACTION_FREE_ENERGY)
     expected = (
-        DELTA_G
-        + (e_prod[np.newaxis, :] - e_prod[0])
-        - (e_reac[:, np.newaxis] - e_reac[0])
+        REACTION_FREE_ENERGY
+        + (system.product_energies[np.newaxis, :] - system.product_energies[0])
+        - (system.reactant_energies[:, np.newaxis] - system.reactant_energies[0])
     )
-    np.testing.assert_allclose(dguv, expected)
+    np.testing.assert_allclose(pair_free_energies, expected)
     np.testing.assert_allclose(
-        system.get_activation_free_energy_matrix(),
-        (dguv + LAMBDA) ** 2 / (4 * LAMBDA),
+        system.pair_activation_energies,
+        (pair_free_energies + REORGANIZATION_ENERGY) ** 2 / (4 * REORGANIZATION_ENERGY),
     )
 
 
 def test_total_rate_is_the_sum_of_state_contributions(system: PCET) -> None:
-    """k_tot accumulates the non-negative contribution matrix."""
-    k_tot = system.calculate(massH, T=TEMPERATURE)
-    kuv = system.get_rate_contribution_matrix()
+    """The total rate accumulates the non-negative contribution matrix."""
+    total = system.calculate(MASS_PROTON, temperature=TEMPERATURE)
 
-    assert np.all(kuv >= 0)
-    assert k_tot == pytest.approx(np.sum(kuv))
+    assert np.all(system.rate_contributions >= 0)
+    assert total == pytest.approx(np.sum(system.rate_contributions))
 
 
 def test_reusing_saved_proton_states_reproduces_the_rate(system: PCET) -> None:
     """Reusing cached vibrational states must not change the answer."""
-    k_first = system.calculate(massH, T=TEMPERATURE)
-    k_reused = system.calculate(massH, T=TEMPERATURE, reuse_saved_proton_states=True)
-    k_deuterium = system.calculate(massD, T=TEMPERATURE, reuse_saved_proton_states=True)
+    first = system.calculate(MASS_PROTON, temperature=TEMPERATURE)
+    reused = system.calculate(MASS_PROTON, temperature=TEMPERATURE, reuse_states=True)
+    deuterium = system.calculate(
+        MASS_DEUTERON, temperature=TEMPERATURE, reuse_states=True
+    )
 
-    assert k_reused == k_first
-    assert k_deuterium != k_first
+    assert reused == first
+    assert deuterium != first
 
 
-def test_set_parameters_updates_the_model(system: PCET) -> None:
-    """set_parameters overrides DeltaG, Lambda, and Vel."""
-    system.set_parameters(DeltaG=-0.3, Lambda=0.9, Vel=0.05)
+def test_updating_parameters_changes_the_rate(system: PCET) -> None:
+    """The thermodynamic parameters are plain attributes and can be reassigned."""
+    before = system.calculate(MASS_PROTON, temperature=TEMPERATURE)
 
-    assert system.DeltaG == -0.3
-    assert system.Lambda == 0.9
-    assert system.Vel == 0.05
+    system.reaction_free_energy = -0.3
+    system.reorganization_energy = 0.9
+    system.electronic_coupling = 0.05
+    after = system.calculate(MASS_PROTON, temperature=TEMPERATURE, reuse_states=True)
+
+    assert system.reaction_free_energy == -0.3
+    assert system.reorganization_energy == 0.9
+    assert system.electronic_coupling == 0.05
+    assert after != before
 
 
 def test_array_input_defines_the_proton_grid() -> None:
     """Tabulated potentials set the rp grid limits from the data."""
-    rp_ascending = RP_DATA[::-1]
+    ascending = RP_GRID[::-1]
     system = PCET(
-        (rp_ascending, E_REAC_DATA[::-1]),
-        (rp_ascending, E_PROD_DATA[::-1]),
-        DELTA_G,
-        LAMBDA,
-        Vel=VEL,
+        (ascending, REACTANT_ENERGIES[::-1]),
+        (ascending, PRODUCT_ENERGIES[::-1]),
+        REACTION_FREE_ENERGY,
+        REORGANIZATION_ENERGY,
+        electronic_coupling=ELECTRONIC_COUPLING,
     )
 
-    assert system.rp[0] == pytest.approx(np.min(RP_DATA))
-    assert system.rp[-1] == pytest.approx(np.max(RP_DATA))
-    k_tot = system.calculate(massH, T=TEMPERATURE)
-    assert np.isfinite(k_tot)
-    assert k_tot > 0
+    assert system.rp[0] == pytest.approx(np.min(RP_GRID))
+    assert system.rp[-1] == pytest.approx(np.max(RP_GRID))
+    total = system.calculate(MASS_PROTON, temperature=TEMPERATURE)
+    assert np.isfinite(total)
+    assert total > 0
 
 
-@pytest.mark.parametrize("smooth", ["poly6", "poly8", "bspline"])
-def test_array_input_supports_all_smoothing_options(smooth: str) -> None:
+@pytest.mark.parametrize("fit_method", ["poly6", "poly8", "bspline"])
+def test_array_input_supports_all_fit_methods(fit_method: FitMethod) -> None:
     """Each smoothing backend yields callable proton potentials."""
-    rp_ascending = RP_DATA[::-1]
+    ascending = RP_GRID[::-1]
     system = PCET(
-        (rp_ascending, E_REAC_DATA[::-1]),
-        (rp_ascending, E_PROD_DATA[::-1]),
-        DELTA_G,
-        LAMBDA,
-        smooth=smooth,
+        (ascending, REACTANT_ENERGIES[::-1]),
+        (ascending, PRODUCT_ENERGIES[::-1]),
+        REACTION_FREE_ENERGY,
+        REORGANIZATION_ENERGY,
+        fit_method=fit_method,
     )
 
-    assert np.all(np.isfinite(system.ReacProtonPot(np.array([0.0]))))
-    assert np.all(np.isfinite(system.ProdProtonPot(np.array([0.0]))))
+    assert np.all(np.isfinite(system.reactant_potential(np.array([0.0]))))
+    assert np.all(np.isfinite(system.product_potential(np.array([0.0]))))
 
 
 def test_grid_limit_keywords_override_defaults(
-    reac_proton_pot: PotentialFunction, prod_proton_pot: PotentialFunction
+    reactant_potential: PotentialFunction, product_potential: PotentialFunction
 ) -> None:
-    """rmin/rmax keywords take precedence; callables default to +/-0.8."""
-    default = PCET(reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA)
+    """r_min/r_max keywords take precedence; callables default to +/-0.8."""
+    default = PCET(
+        reactant_potential,
+        product_potential,
+        REACTION_FREE_ENERGY,
+        REORGANIZATION_ENERGY,
+    )
     custom = PCET(
-        reac_proton_pot, prod_proton_pot, DELTA_G, LAMBDA, rmin=-0.5, rmax=0.6
+        reactant_potential,
+        product_potential,
+        REACTION_FREE_ENERGY,
+        REORGANIZATION_ENERGY,
+        r_min=-0.5,
+        r_max=0.6,
     )
 
     assert default.rp[0] == pytest.approx(-0.8)
@@ -172,23 +192,34 @@ def test_grid_limit_keywords_override_defaults(
 
 
 def test_invalid_potential_inputs_are_rejected(
-    reac_proton_pot: PotentialFunction,
+    reactant_potential: PotentialFunction,
 ) -> None:
     """Non-callable, non-tabulated potentials raise TypeError."""
-    with pytest.raises(TypeError, match="ReacProtonPot"):
-        PCET(5.0, reac_proton_pot, DELTA_G, LAMBDA)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="ProdProtonPot"):
-        PCET(reac_proton_pot, 5.0, DELTA_G, LAMBDA)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="reactant_potential"):
+        PCET(5.0, reactant_potential, REACTION_FREE_ENERGY, REORGANIZATION_ENERGY)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="product_potential"):
+        PCET(reactant_potential, 5.0, REACTION_FREE_ENERGY, REORGANIZATION_ENERGY)  # type: ignore[arg-type]
 
 
-def test_invalid_smoothing_option_is_rejected(
-    reac_proton_pot: PotentialFunction,
+def test_invalid_fit_method_is_rejected(
+    reactant_potential: PotentialFunction,
 ) -> None:
-    """An unknown smooth choice raises ValueError for either potential."""
-    rp_ascending = RP_DATA[::-1]
-    tabulated = (rp_ascending, E_REAC_DATA[::-1])
+    """An unknown fit_method raises ValueError for either potential."""
+    tabulated = (RP_GRID[::-1], REACTANT_ENERGIES[::-1])
 
-    with pytest.raises(ValueError, match="smooth"):
-        PCET(tabulated, reac_proton_pot, DELTA_G, LAMBDA, smooth="nope")
-    with pytest.raises(ValueError, match="smooth"):
-        PCET(reac_proton_pot, tabulated, DELTA_G, LAMBDA, smooth="nope")
+    with pytest.raises(ValueError, match="fit_method"):
+        PCET(
+            tabulated,
+            reactant_potential,
+            REACTION_FREE_ENERGY,
+            REORGANIZATION_ENERGY,
+            fit_method="nope",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="fit_method"):
+        PCET(
+            reactant_potential,
+            tabulated,
+            REACTION_FREE_ENERGY,
+            REORGANIZATION_ENERGY,
+            fit_method="nope",  # type: ignore[arg-type]
+        )

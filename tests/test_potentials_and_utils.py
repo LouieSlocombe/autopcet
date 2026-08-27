@@ -1,94 +1,104 @@
 """Tests for the analytic potentials, fitting helpers, and small utilities."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
-from example1_data import E_REAC_DATA, RP_DATA
+from example1_data import REACTANT_ENERGIES, RP_GRID
 from scipy.integrate import simpson
 
 from autopcet import (
-    A2Bohr,
-    Bohr2A,
-    Debye2au,
-    Ha2eV,
-    Ha2kcal,
-    au2s,
-    eV2Ha,
-    eV2kcal,
-    eV2wn,
+    ANGSTROM_TO_BOHR,
+    AU_TIME_TO_SECONDS,
+    BOHR_TO_ANGSTROM,
+    BOLTZMANN,
+    DEBYE_TO_AU,
+    EV_TO_HARTREE,
+    EV_TO_KCAL,
+    EV_TO_WAVENUMBER,
+    HARTREE_TO_EV,
+    HARTREE_TO_KCAL,
+    HBAR,
+    KCAL_TO_EV,
+    KCAL_TO_HARTREE,
+    MASS_DEUTERON,
+    MASS_PROTON,
+    PLANCK,
+    WAVENUMBER_TO_EV,
     find_roots,
     fit_bspline,
     fit_poly6,
     fit_poly8,
+    fit_potential,
     gaussian,
-    h,
-    hbar,
     inverted_morse,
     is_array,
     is_number,
-    kB,
-    kcal2eV,
-    kcal2Ha,
     make_inverted_morse,
     make_morse,
-    massD,
-    massH,
     morse,
     poly6,
     poly8,
-    wn2eV,
 )
+from autopcet._types import FitMethod, FloatArray, PotentialFunction
 
 
 def test_morse_minimum_and_dissociation_limit() -> None:
-    """A Morse potential is zero at its minimum and tends to De."""
-    r0, de, beta = 0.95, 4.0, 2.5
+    """A Morse potential is zero at its minimum and tends to its well depth."""
+    r0, well_depth, width = 0.95, 4.0, 2.5
 
-    assert morse(r0, r0, de, beta) == 0.0
-    assert morse(r0 + 50.0 / beta, r0, de, beta) == pytest.approx(de)
+    assert morse(r0, r0, well_depth, width) == 0.0
+    assert morse(r0 + 50.0 / width, r0, well_depth, width) == pytest.approx(well_depth)
 
 
 def test_inverted_morse_mirrors_morse() -> None:
     """The inverted Morse potential is the mirror image of the Morse one."""
     r = np.linspace(-1.0, 1.0, 101)
-    r0, de, beta = 0.35, 4.0, 2.5
+    r0, well_depth, width = 0.35, 4.0, 2.5
 
     np.testing.assert_allclose(
-        inverted_morse(r, r0, de, beta), morse(2 * r0 - r, r0, de, beta)
+        inverted_morse(r, r0, well_depth, width),
+        morse(2 * r0 - r, r0, well_depth, width),
     )
 
 
 def test_make_morse_matches_direct_evaluation() -> None:
     """The Morse factories return callables equal to the plain functions."""
     r = np.linspace(-1.0, 1.0, 101)
-    r0, de, beta = -0.35, 3.5, 2.0
+    r0, well_depth, width = -0.35, 3.5, 2.0
 
-    np.testing.assert_allclose(make_morse(r0, de, beta)(r), morse(r, r0, de, beta))
     np.testing.assert_allclose(
-        make_inverted_morse(r0, de, beta)(r), inverted_morse(r, r0, de, beta)
+        make_morse(r0, well_depth, width)(r), morse(r, r0, well_depth, width)
+    )
+    np.testing.assert_allclose(
+        make_inverted_morse(r0, well_depth, width)(r),
+        inverted_morse(r, r0, well_depth, width),
     )
 
 
 def test_gaussian_is_normalized_and_peaks_at_center() -> None:
-    """The Gaussian has unit area and its maximum value at x0."""
+    """The Gaussian has unit area and its maximum value at its center."""
     x = np.linspace(-8.0, 8.0, 4001)
-    x0, sigma2 = 0.3, 0.5
-    g = gaussian(x, x0, sigma2)
+    center, variance = 0.3, 0.5
+    density = gaussian(x, center, variance)
 
-    assert simpson(g, x=x) == pytest.approx(1.0, abs=1e-6)
-    assert gaussian(x0, x0, sigma2) == pytest.approx(1 / np.sqrt(2 * np.pi * sigma2))
-    assert gaussian(x0 + 0.2, x0, sigma2) == pytest.approx(
-        gaussian(x0 - 0.2, x0, sigma2)
+    assert simpson(density, x=x) == pytest.approx(1.0, abs=1e-6)
+    assert gaussian(center, center, variance) == pytest.approx(
+        1 / np.sqrt(2 * np.pi * variance)
+    )
+    assert gaussian(center + 0.2, center, variance) == pytest.approx(
+        gaussian(center - 0.2, center, variance)
     )
 
 
 def test_polynomials_match_numpy_polyval() -> None:
     """poly6 and poly8 evaluate their coefficients in descending order."""
     x = np.linspace(-2.0, 2.0, 51)
-    coeffs6 = [0.2, -0.5, 1.0, 0.7, -1.2, 0.3, 2.0]
-    coeffs8 = [0.1, 0.2, -0.4, 0.5, 1.0, -0.7, 1.2, -0.3, 0.9]
+    coefficients6 = [0.2, -0.5, 1.0, 0.7, -1.2, 0.3, 2.0]
+    coefficients8 = [0.1, 0.2, -0.4, 0.5, 1.0, -0.7, 1.2, -0.3, 0.9]
 
-    np.testing.assert_allclose(poly6(x, *coeffs6), np.polyval(coeffs6, x))
-    np.testing.assert_allclose(poly8(x, *coeffs8), np.polyval(coeffs8, x))
+    np.testing.assert_allclose(poly6(x, *coefficients6), np.polyval(coefficients6, x))
+    np.testing.assert_allclose(poly8(x, *coefficients8), np.polyval(coefficients8, x))
 
 
 def test_fit_poly6_reproduces_smooth_data() -> None:
@@ -102,10 +112,10 @@ def test_fit_poly6_reproduces_smooth_data() -> None:
 
 def test_fit_poly8_reproduces_example1_potential() -> None:
     """The example 1 workflow fits the raw double well to within 0.1 eV."""
-    fitted = fit_poly8(RP_DATA, E_REAC_DATA)
+    fitted = fit_poly8(RP_GRID, REACTANT_ENERGIES)
 
     np.testing.assert_allclose(
-        fitted(RP_DATA), E_REAC_DATA - np.min(E_REAC_DATA), atol=0.1
+        fitted(RP_GRID), REACTANT_ENERGIES - np.min(REACTANT_ENERGIES), atol=0.1
     )
 
 
@@ -116,6 +126,30 @@ def test_fit_bspline_reproduces_smooth_data() -> None:
     fitted = fit_bspline(x, y)
 
     np.testing.assert_allclose(fitted(x), y - np.min(y), atol=5e-3)
+
+
+@pytest.mark.parametrize("fit_method", ["poly6", "poly8", "bspline"])
+def test_fit_potential_dispatches_to_each_backend(fit_method: FitMethod) -> None:
+    """fit_potential reproduces the fit its named backend would have made."""
+    x = np.linspace(-1.0, 1.0, 81)
+    y = np.cos(x)
+    backends: dict[str, Callable[[FloatArray, FloatArray], PotentialFunction]] = {
+        "poly6": fit_poly6,
+        "poly8": fit_poly8,
+        "bspline": fit_bspline,
+    }
+
+    np.testing.assert_allclose(
+        fit_potential(x, y, fit_method)(x), backends[fit_method](x, y)(x)
+    )
+
+
+def test_fit_potential_rejects_an_unknown_method() -> None:
+    """An unrecognized fit_method raises ValueError."""
+    x = np.linspace(-1.0, 1.0, 21)
+
+    with pytest.raises(ValueError, match="fit_method"):
+        fit_potential(x, np.cos(x), "nope")  # type: ignore[arg-type]
 
 
 def test_find_roots_locates_sign_changes() -> None:
@@ -151,23 +185,37 @@ def test_is_number_and_is_array() -> None:
     assert not is_array("abc")
 
 
-def test_physical_constants_have_expected_values() -> None:
+@pytest.mark.parametrize(
+    ("name", "value", "expected", "tolerance"),
+    [
+        ("BOLTZMANN", BOLTZMANN, 8.617333e-5, 1e-6),
+        ("HBAR", HBAR, PLANCK / (2 * np.pi), 1e-12),
+        ("HARTREE_TO_EV", HARTREE_TO_EV, 27.211386, 1e-6),
+        ("HARTREE_TO_KCAL", HARTREE_TO_KCAL, 627.5095, 1e-4),
+        ("EV_TO_WAVENUMBER", EV_TO_WAVENUMBER, 8065.54, 1e-4),
+        ("AU_TIME_TO_SECONDS", AU_TIME_TO_SECONDS, 2.418884e-17, 1e-6),
+        ("MASS_PROTON", MASS_PROTON, 1836.15267, 1e-6),
+        ("MASS_DEUTERON", MASS_DEUTERON / MASS_PROTON, 2.0, 1e-2),
+        ("DEBYE_TO_AU", DEBYE_TO_AU, 0.3934303, 1e-6),
+    ],
+)
+def test_physical_constants_have_expected_values(
+    name: str, value: float, expected: float, tolerance: float
+) -> None:
     """The exported constants match CODATA values in the documented units."""
-    assert kB == pytest.approx(8.617333e-5, rel=1e-6)
-    assert hbar == pytest.approx(h / (2 * np.pi))
-    assert Ha2eV == pytest.approx(27.211386, rel=1e-6)
-    assert Ha2kcal == pytest.approx(627.5095, rel=1e-4)
-    assert eV2wn == pytest.approx(8065.54, rel=1e-4)
-    assert au2s == pytest.approx(2.418884e-17, rel=1e-6)
-    assert massH == pytest.approx(1836.15267, rel=1e-6)
-    assert massD / massH == pytest.approx(2.0, rel=1e-2)
-    assert Debye2au == pytest.approx(0.3934303, rel=1e-6)
+    assert value == pytest.approx(expected, rel=tolerance), name
 
 
-def test_unit_conversions_round_trip() -> None:
+@pytest.mark.parametrize(
+    ("forward", "backward"),
+    [
+        (HARTREE_TO_EV, EV_TO_HARTREE),
+        (HARTREE_TO_KCAL, KCAL_TO_HARTREE),
+        (EV_TO_KCAL, KCAL_TO_EV),
+        (ANGSTROM_TO_BOHR, BOHR_TO_ANGSTROM),
+        (WAVENUMBER_TO_EV, EV_TO_WAVENUMBER),
+    ],
+)
+def test_unit_conversions_round_trip(forward: float, backward: float) -> None:
     """Each forward/backward conversion pair multiplies to one."""
-    assert Ha2eV * eV2Ha == pytest.approx(1.0)
-    assert Ha2kcal * kcal2Ha == pytest.approx(1.0)
-    assert eV2kcal * kcal2eV == pytest.approx(1.0)
-    assert A2Bohr * Bohr2A == pytest.approx(1.0)
-    assert wn2eV * eV2wn == pytest.approx(1.0)
+    assert forward * backward == pytest.approx(1.0)

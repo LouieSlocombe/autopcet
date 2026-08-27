@@ -1,16 +1,21 @@
+"""Rate constant, vibronic-state analysis, and H/D KIE for a first-principles
+double-well proton potential."""
+
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 
-from autopcet import PCET, fit_poly8, massD, massH
+from autopcet import MASS_DEUTERON, MASS_PROTON, PCET, fit_poly8
 
-# define temperature, electronic coupling, reaction free energy, and reorganization energy
-T = 298
-Vel = 0.0434
-dG = -0.50
-Lambda = 1.00
+# temperature, electronic coupling, reaction free energy, and reorganization
+# energy; energies in eV
+TEMPERATURE = 298
+ELECTRONIC_COUPLING = 0.0434
+REACTION_FREE_ENERGY = -0.50
+REORGANIZATION_ENERGY = 1.00
 
 # double well potentials calculated from first principles
-rp = np.array(
+rp_data = np.array(
     [
         0.614,
         0.550,
@@ -34,7 +39,7 @@ rp = np.array(
         -0.614,
     ]
 )
-E_Reac = np.array(
+reactant_energies = np.array(
     [
         5.283,
         4.534,
@@ -58,7 +63,7 @@ E_Reac = np.array(
         5.144,
     ]
 )
-E_Prod = np.array(
+product_energies = np.array(
     [
         4.847,
         4.134,
@@ -83,72 +88,78 @@ E_Prod = np.array(
     ]
 )
 
-ReacProtonPot = fit_poly8(rp, E_Reac)
-ProdProtonPot = fit_poly8(rp, E_Prod)
+reactant_potential = fit_poly8(rp_data, reactant_energies)
+product_potential = fit_poly8(rp_data, product_energies)
 
-# set up system and do a calculation
-system = PCET(ReacProtonPot, ProdProtonPot, dG, Lambda, Vel=Vel)
-system.calculate(massH, T=T)
+# set up the system and do a calculation
+system = PCET(
+    reactant_potential,
+    product_potential,
+    REACTION_FREE_ENERGY,
+    REORGANIZATION_ENERGY,
+    electronic_coupling=ELECTRONIC_COUPLING,
+)
+system.calculate(MASS_PROTON, temperature=TEMPERATURE)
 
 # ===========================================================
 # Plot proton vibrational wave functions
 # ===========================================================
 
+STATES_TO_PLOT = 6
+
+# wave functions and energies share an axis, so scale the wave functions down
+WAVEFUNCTION_SCALE = 0.06
+
+rp = system.rp
+
+# align the zero-point energy of the reactant and product states in this plot
+zero_point_gap = system.product_energies[0] - system.reactant_energies[0]
+reactant_shift, product_shift = max(zero_point_gap, 0.0), max(-zero_point_gap, 0.0)
+
+
+def plot_states(
+    axis: Axes,
+    energies: np.ndarray,
+    wavefunctions: np.ndarray,
+    shift: float,
+    color: str,
+) -> None:
+    """Draw the lowest vibrational states as wave functions on their levels."""
+    for i, (energy, wavefunction) in enumerate(
+        zip(energies[:STATES_TO_PLOT], wavefunctions[:STATES_TO_PLOT], strict=True)
+    ):
+        # flip the wave function so its largest amplitude points up
+        sign = 1 if np.abs(np.max(wavefunction)) > np.abs(np.min(wavefunction)) else -1
+        level = energy + shift
+        curve = level + WAVEFUNCTION_SCALE * sign * wavefunction
+        axis.plot(rp, curve, f"{color}-", lw=1, alpha=(1 - 0.12 * i))
+        axis.fill_between(rp, curve, level, color=color, alpha=0.4)
+
+
 fig = plt.figure(figsize=(9, 4.5))
 gs = fig.add_gridspec(ncols=2, wspace=0)
 ax1, ax2 = gs.subplots(sharex=True, sharey=True)
 
-Evib_reactant, wfc_reactant = system.get_reactant_proton_states()
-Evib_product, wfc_product = system.get_product_proton_states()
-rp = system.rp
-NStates_to_show = 6
+for axis in (ax1, ax2):
+    axis.plot(rp, reactant_potential(rp) + reactant_shift, "b", lw=2)
+    axis.plot(rp, product_potential(rp) + product_shift, "r", lw=2)
+    axis.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
+    axis.tick_params(labelsize=14)
 
-# align the zero-point energy of the reactant and product states in this plot
-if Evib_product[0] < Evib_reactant[0]:
-    dEr = 0
-    dEp = -Evib_product[0] + Evib_reactant[0]
-else:
-    dEr = Evib_product[0] - Evib_reactant[0]
-    dEp = 0
-
-ax1.plot(rp, ReacProtonPot(rp) + dEr, "b", lw=2)
-ax1.plot(rp, ProdProtonPot(rp) + dEp, "r", lw=2)
-scale_wfc = 0.06  # we will plot wave functions and energies in the same plot, this factor scales the wave function for better visualization
-
-for i, (Ei, wfci) in enumerate(
-    zip(Evib_reactant[:NStates_to_show], wfc_reactant[:NStates_to_show], strict=True)
-):
-    # change the sign of the vibrational wave functions for better visualization
-    # make the largest amplitude positive
-    sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
-    ax1.plot(rp, Ei + dEr + scale_wfc * sign * wfci, "b-", lw=1, alpha=(1 - 0.12 * i))
-    ax1.fill_between(
-        rp, Ei + dEr + scale_wfc * sign * wfci, Ei + dEr, color="b", alpha=0.4
-    )
+plot_states(
+    ax1, system.reactant_energies, system.reactant_wavefunctions, reactant_shift, "b"
+)
+plot_states(
+    ax2, system.product_energies, system.product_wavefunctions, product_shift, "r"
+)
 
 ax1.set_xlim(-0.8, 0.8)
 ax1.set_ylim(0, 1.3)
-ax1.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
 ax1.set_ylabel(r"$E$ / eV", fontsize=16)
-ax1.tick_params(labelsize=14)
-
-ax2.plot(rp, ReacProtonPot(rp) + dEr, "b", lw=2)
-ax2.plot(rp, ProdProtonPot(rp) + dEp, "r", lw=2)
-
-for i, (Ei, wfci) in enumerate(
-    zip(Evib_product[:NStates_to_show], wfc_product[:NStates_to_show], strict=True)
-):
-    sign = 1 if np.abs(np.max(wfci)) > np.abs(np.min(wfci)) else -1
-    ax2.plot(rp, Ei + dEp + scale_wfc * sign * wfci, "r-", lw=1, alpha=(1 - 0.12 * i))
-    ax2.fill_between(
-        rp, Ei + dEp + scale_wfc * sign * wfci, Ei + dEp, color="r", alpha=0.4
-    )
 
 ax2.set_xlim(-0.65, 0.75)
 ax2.set_ylim(0, 1.3)
-ax2.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
 ax2.set_xticks(np.arange(-0.6, 0.8, 0.2))
-ax2.tick_params(labelsize=14)
 
 plt.tight_layout()
 plt.savefig("Proton_states.png", dpi=300)
@@ -158,23 +169,21 @@ plt.clf()
 # Analyze the contribution of each pair of vibronic states
 # ===========================================================
 
-Pu = system.get_reactant_state_distribution()
-Suv = system.get_proton_overlap_matrix()
-dGuv = system.get_reaction_free_energy_matrix()
-dGa_uv = system.get_activation_free_energy_matrix()
-kuv = system.get_rate_contribution_matrix()
-k_tot = system.get_total_rate_constant()
-percentage_contribution = kuv / k_tot
+STATES_TO_PRINT = 4
 
-# print a table for these quantities
-NStates_to_show = 4
+fractional_contribution = system.rate_contributions / system.total_rate_constant
+
 print("\n" + "=" * 130)
 print("(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\tDelta G^#_uv / eV\t% Contrib.")
 print("-" * 130)
-for u in range(NStates_to_show):
-    for v in range(NStates_to_show):
+for u in range(STATES_TO_PRINT):
+    for v in range(STATES_TO_PRINT):
         print(
-            f"({u:d}, {v:d})\t\t{Pu[u]:.3e}\t\t{Suv[u, v] * Suv[u, v]:.3e}\t\t{dGuv[u, v]:+.3f}\t\t\t{dGa_uv[u, v]:.3f}\t\t\t{percentage_contribution[u, v]:.3f}"
+            f"({u:d}, {v:d})\t\t{system.populations[u]:.3e}\t\t"
+            f"{system.overlaps[u, v] ** 2:.3e}\t\t"
+            f"{system.pair_free_energies[u, v]:+.3f}\t\t\t"
+            f"{system.pair_activation_energies[u, v]:.3f}\t\t\t"
+            f"{fractional_contribution[u, v]:.3f}"
         )
 
 print("=" * 130 + "\n")
@@ -183,9 +192,9 @@ print("=" * 130 + "\n")
 # Calculate rate constants for H and D, and the KIE
 # ===========================================================
 
-k_tot_H = system.calculate(massH, T)
-k_tot_D = system.calculate(massD, T)
+rate_h = system.calculate(MASS_PROTON, TEMPERATURE)
+rate_d = system.calculate(MASS_DEUTERON, TEMPERATURE)
 
-print(f"At {T:d}K, k_tot(H) = {k_tot_H:.2e} s^-1")
-print(f"At {T:d}K, k_tot(D) = {k_tot_D:.2e} s^-1")
-print(f"At {T:d}K, KIE = {k_tot_H / k_tot_D:.2f}")
+print(f"At {TEMPERATURE:d}K, k_tot(H) = {rate_h:.2e} s^-1")
+print(f"At {TEMPERATURE:d}K, k_tot(D) = {rate_d:.2e} s^-1")
+print(f"At {TEMPERATURE:d}K, KIE = {rate_h / rate_d:.2f}")

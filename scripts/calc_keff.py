@@ -6,107 +6,119 @@ import argparse
 import numpy as np
 from ase.io import read, write
 
-from autopcet import A2cm, Da2me, au2s, c
+from autopcet import (
+    ANGSTROM_TO_CM,
+    AU_TIME_TO_SECONDS,
+    DALTON_TO_ELECTRON_MASS,
+    SPEED_OF_LIGHT,
+)
+
+# 1 a.u. = 8.2387235038 mDyne and 1 Bohr = 0.529177 A, so this converts the
+# mDyne/A force constants Gaussian prints into atomic units
+MDYNE_PER_ANGSTROM_TO_AU = 8.2387235038 / 0.529177
+
+# with HPmodes set, Gaussian prints the high-precision normal modes 5 per group
+MODES_PER_GROUP = 5
 
 
-def read_Gaussian_freq_job(xyzfile, logfile):
-    atoms = read(xyzfile)
-    natoms = len(atoms)
-    # number of vibrational degrees of freedom, assume a nonlinear molecule
-    nDOFvib = 3 * natoms - 6
+def read_gaussian_frequencies(xyz_path, log_path):
+    """Read the optimized geometry and normal modes of a Gaussian frequency job.
 
-    # when HPmodes is set in Gaussian input file, the normal modes are printed 5 modes per group
-    ngroup = int(nDOFvib / 5)
-    nresidue = nDOFvib % 5
-    if nresidue != 0:
-        ngroup += 1
+    Returns the atoms, frequencies (cm^-1), reduced masses (amu), force
+    constants (mDyne/A), and the Cartesian displacements of each normal mode.
+    """
+    atoms = read(xyz_path)
+    n_atoms = len(atoms)
+    # number of vibrational degrees of freedom, assuming a nonlinear molecule
+    n_modes = 3 * n_atoms - 6
+    n_groups = -(-n_modes // MODES_PER_GROUP)  # ceiling division
 
-    with open(logfile) as logfp:
-        lines = logfp.readlines()
+    with open(log_path) as log_file:
+        lines = log_file.readlines()
 
-    index_optimized_struct = 0
-    index_freq_output = 0
+    geometry_start = 0
+    frequency_start = 0
     for i, line in enumerate(lines):
         if "Standard orientation" in line:
-            index_optimized_struct = i
+            geometry_start = i
         if line.startswith(" Harmonic frequencies"):
-            # when HPmodes is set, the high precision normal modes are printed first
-            # we only need the line index that corresponds to the high precision outputs
-            index_freq_output = i
+            # with HPmodes the high precision normal modes are printed first, so
+            # only the first such line is of interest
+            frequency_start = i
             break
 
-    # read optimized structure
-    # update the coordinate in the Atoms object if they are not the same as the optimized structure
-    # this is because Gaussian can rotate the geometry during the calculation
-    new_poses = np.zeros([natoms, 3])
-    i = index_optimized_struct + 5
-    for j in range(natoms):
-        new_poses[j] = [float(dat) for dat in lines[i + j].split()[3:]]
-    atoms.set_positions(new_poses)
+    # Read the optimized structure and update the Atoms object with it, since
+    # Gaussian may have rotated the geometry during the calculation.
+    positions = np.zeros((n_atoms, 3))
+    first_atom_line = geometry_start + 5
+    for j in range(n_atoms):
+        positions[j] = [
+            float(value) for value in lines[first_atom_line + j].split()[3:]
+        ]
+    atoms.set_positions(positions)
 
     write("optimized_geometry.xyz", atoms)
 
-    freqs = np.zeros(nDOFvib)
-    reduced_masses = np.zeros(nDOFvib)
-    force_constants = np.zeros(nDOFvib)
-    normal_modes = np.zeros([nDOFvib, 3 * natoms])
+    frequencies = np.zeros(n_modes)
+    reduced_masses = np.zeros(n_modes)
+    force_constants = np.zeros(n_modes)
+    normal_modes = np.zeros((n_modes, 3 * n_atoms))
 
-    # start reading normal modes
-    i = index_freq_output + 4
-    for _ in range(ngroup):
-        mode_indices = [int(dat) - 1 for dat in lines[i].split()]
-        freqs[mode_indices] = [float(dat) for dat in lines[i + 2].split()[2:]]
-        reduced_masses[mode_indices] = [float(dat) for dat in lines[i + 3].split()[3:]]
-        force_constants[mode_indices] = [float(dat) for dat in lines[i + 4].split()[3:]]
+    line_index = frequency_start + 4
+    for _ in range(n_groups):
+        mode_indices = [int(value) - 1 for value in lines[line_index].split()]
+        frequencies[mode_indices] = [
+            float(value) for value in lines[line_index + 2].split()[2:]
+        ]
+        reduced_masses[mode_indices] = [
+            float(value) for value in lines[line_index + 3].split()[3:]
+        ]
+        force_constants[mode_indices] = [
+            float(value) for value in lines[line_index + 4].split()[3:]
+        ]
 
-        for j in range(3 * natoms):
+        for j in range(3 * n_atoms):
             normal_modes[mode_indices, j] = [
-                float(dat) for dat in lines[i + 7 + j].split()[3:]
+                float(value) for value in lines[line_index + 7 + j].split()[3:]
             ]
 
-        i += 7 + natoms * 3
+        line_index += 7 + n_atoms * 3
 
-    # In Gaussian output, the frequencies are in cm-1, reduced masses in amu
-    # force constants in mDyne/A
-    # The printed normal modes by Gaussian are the Cartesian displacements, not the mass-weighted Cartesian displacements
-
-    return atoms, freqs, reduced_masses, force_constants, normal_modes
+    return atoms, frequencies, reduced_masses, force_constants, normal_modes
 
 
-def calc_keff(
+def calc_effective_mode(
     atoms, donor_index, acceptor_index, reduced_masses, force_constants, normal_modes
 ):
-    # input force constants in mDyne/A, which is unit used in Gassuain outputs
+    """Project the normal modes onto the proton donor-acceptor axis.
 
-    # convert the unit of force constant from mDyne/A to au
-    # 1 au = 8.2387235038 mDyne, 1 Bohr = 0.529177 A
-    scale = 8.2387235038 / 0.529177
-    force_constants_au = force_constants / scale
+    ``force_constants`` are in mDyne/A, as printed by Gaussian. Returns the
+    effective force constant (a.u.), reduced mass (amu), and frequency (cm^-1).
+    """
+    force_constants_au = force_constants / MDYNE_PER_ANGSTROM_TO_AU
 
-    poses = atoms.get_positions()
+    positions = atoms.get_positions()
 
-    # calculate the unit vector connect the proton donor and acceptor
-    eDA = poses[acceptor_index] - poses[donor_index]
-    eDA /= np.linalg.norm(eDA)
+    # unit vector connecting the proton donor and acceptor
+    axis = positions[acceptor_index] - positions[donor_index]
+    axis /= np.linalg.norm(axis)
 
-    nDOFvib = len(force_constants_au)
-    weights = np.zeros(nDOFvib)
+    # how much each normal mode stretches the donor-acceptor axis
+    donor_slice = slice(donor_index * 3, donor_index * 3 + 3)
+    acceptor_slice = slice(acceptor_index * 3, acceptor_index * 3 + 3)
+    weights = (normal_modes[:, acceptor_slice] - normal_modes[:, donor_slice]) @ axis
 
-    for imode in range(nDOFvib):
-        lAi = normal_modes[imode, acceptor_index * 3 : acceptor_index * 3 + 3]
-        lDi = normal_modes[imode, donor_index * 3 : donor_index * 3 + 3]
-        weights[imode] = np.inner(eDA, lAi - lDi)
+    effective_force_constant = 1 / np.sum(weights * weights / force_constants_au)
+    effective_reduced_mass = 1 / np.sum(weights * weights / reduced_masses)
 
-    effective_force_constant = 1 / (np.sum(weights * weights / force_constants_au))
-    effective_reduced_mass = 1 / (np.sum(weights * weights / reduced_masses))
-
-    # calculate effective proton DA vibrational frequency in cm-1
-    # autopcet.c is in A/s, so convert it to cm/s for a wavenumber
-    c_cm = c * A2cm
+    # autopcet's speed of light is in A/s, so convert it to cm/s for a wavenumber
+    speed_of_light_cm = SPEED_OF_LIGHT * ANGSTROM_TO_CM
     effective_frequency = (
-        np.sqrt(effective_force_constant / effective_reduced_mass / Da2me)
-        / au2s
-        / c_cm
+        np.sqrt(
+            effective_force_constant / effective_reduced_mass / DALTON_TO_ELECTRON_MASS
+        )
+        / AU_TIME_TO_SECONDS
+        / speed_of_light_cm
         / 2
         / np.pi
     )
@@ -118,13 +130,13 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--xyz",
-        dest="xyzfile",
+        dest="xyz_path",
         required=True,
         help="select an xyz file for the molecule",
     )
     parser.add_argument(
         "--log",
-        dest="logfile",
+        dest="log_path",
         required=True,
         help="select the log file of a Gaussian frequency calculation",
     )
@@ -148,10 +160,10 @@ def build_parser():
 def main():
     options = build_parser().parse_args()
 
-    atoms, _freqs, reduced_masses, force_constants, normal_modes = (
-        read_Gaussian_freq_job(options.xyzfile, options.logfile)
+    atoms, _, reduced_masses, force_constants, normal_modes = read_gaussian_frequencies(
+        options.xyz_path, options.log_path
     )
-    effective_force_constant, effective_reduced_mass, effective_frequency = calc_keff(
+    force_constant, reduced_mass, frequency = calc_effective_mode(
         atoms,
         options.donor_index,
         options.acceptor_index,
@@ -160,9 +172,9 @@ def main():
         normal_modes,
     )
 
-    print(f"Effective force constant in a.u.: {effective_force_constant:.4f}")
-    print(f"Effective reduced mass in amu: {effective_reduced_mass:.3f}")
-    print(f"Effective frequency in cm-1: {effective_frequency: .2f}")
+    print(f"Effective force constant in a.u.: {force_constant:.4f}")
+    print(f"Effective reduced mass in amu: {reduced_mass:.3f}")
+    print(f"Effective frequency in cm-1: {frequency: .2f}")
 
 
 if __name__ == "__main__":

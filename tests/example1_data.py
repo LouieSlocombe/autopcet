@@ -4,7 +4,7 @@ import numpy as np
 
 # First-principles double-well proton potentials from example 1.
 # Distances in angstrom, energies in eV.
-RP_DATA = np.array(
+RP_GRID = np.array(
     [
         0.614,
         0.550,
@@ -28,7 +28,7 @@ RP_DATA = np.array(
         -0.614,
     ]
 )
-E_REAC_DATA = np.array(
+REACTANT_ENERGIES = np.array(
     [
         5.283,
         4.534,
@@ -52,7 +52,7 @@ E_REAC_DATA = np.array(
         5.144,
     ]
 )
-E_PROD_DATA = np.array(
+PRODUCT_ENERGIES = np.array(
     [
         4.847,
         4.134,
@@ -77,8 +77,8 @@ E_PROD_DATA = np.array(
     ]
 )
 
-# Thermodynamic parameters used in example 1.
-DELTA_G = -0.50
-LAMBDA = 1.00
-VEL = 0.0434
-TEMPERATURE = 298
+# Thermodynamic parameters used in example 1, in eV.
+REACTION_FREE_ENERGY = -0.50
+REORGANIZATION_ENERGY = 1.00
+ELECTRONIC_COUPLING = 0.0434
+TEMPERATURE = 298  # kelvin

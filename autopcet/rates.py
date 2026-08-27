@@ -3,233 +3,214 @@
 import numpy as np
 from scipy.integrate import simpson
 
-from ._types import FloatArray, PotentialFunction
-from .constants import hbar, kB, massH
-from .fgh import _solve_vibrational_states
-from .potentials import fit_bspline, fit_poly6, fit_poly8
+from ._types import FitMethod, FloatArray, PotentialFunction, TabulatedPotential
+from .constants import BOLTZMANN, HBAR, MASS_PROTON, ROOM_TEMPERATURE
+from .fgh import _solve_proton_states
+from .potentials import fit_potential
 from .utils import is_array
 
+_DEFAULT_GRID_HALF_WIDTH = 0.8
+"""Half-width in angstrom of the proton grid used for callable potentials."""
 
-def _smoothed_potential(
-    pot: PotentialFunction | tuple[FloatArray, FloatArray] | list[FloatArray],
-    smooth: str,
+
+def _as_potential_function(
+    potential: PotentialFunction | TabulatedPotential,
+    fit_method: FitMethod,
     name: str,
-) -> tuple[PotentialFunction, float | None, float | None]:
-    """Turn a tabulated ``(rp, V)`` potential into a callable via smoothing.
+) -> tuple[PotentialFunction, tuple[float, float] | None]:
+    """Turn a tabulated ``(rp, V)`` potential into a callable by smoothing it.
 
     Callables pass through unchanged. Returns the potential function and the
-    bounds of the tabulated data (``None`` for callables).
+    range spanned by the tabulated data (``None`` for callables).
     """
-    if callable(pot):
-        return pot, None, None
-    if is_array(pot) and len(pot) == 2:
-        r = np.asarray(pot[0], dtype=np.float64)
-        v = np.asarray(pot[1], dtype=np.float64)
-        if smooth == "poly6":
-            fitted = fit_poly6(r, v)
-        elif smooth == "poly8":
-            fitted = fit_poly8(r, v)
-        elif smooth == "bspline":
-            fitted = fit_bspline(r, v)
-        else:
-            raise ValueError("'smooth' must be one of 'poly6', 'poly8', or 'bspline'.")
-        return fitted, float(np.min(r)), float(np.max(r))
+    if callable(potential):
+        return potential, None
+    if is_array(potential) and len(potential) == 2:
+        rp = np.asarray(potential[0], dtype=np.float64)
+        energy = np.asarray(potential[1], dtype=np.float64)
+        return fit_potential(rp, energy, fit_method), (
+            float(np.min(rp)),
+            float(np.max(rp)),
+        )
     raise TypeError(f"'{name}' must be a callable or a pair (rp, V) of 1D arrays.")
 
 
 class PCET:
     """Golden-rule PCET rate constants from diabatic proton potentials.
 
-    Takes the reactant and product proton potentials (callables in eV, or
-    tabulated ``(rp, V)`` pairs to be smoothed), the reaction free energy
-    ``DeltaG`` (eV), the reorganization energy ``Lambda`` (eV), and the
-    electronic coupling ``Vel`` (eV), and computes the vibronically
-    nonadiabatic PCET rate constant.
+    Takes the reactant and product proton potentials -- callables returning eV
+    given the proton coordinate in angstrom, or tabulated ``(rp, V)`` pairs to
+    be smoothed -- along with the reaction free energy, the reorganization
+    energy, and the electronic coupling, all in eV.
+
+    Calling :meth:`calculate` fills in the per-state results: ``populations``,
+    ``overlaps``, ``pair_free_energies``, ``pair_activation_energies``,
+    ``rate_contributions``, and ``total_rate_constant``.
     """
 
     rp: FloatArray
-    ReacProtonPot: PotentialFunction
-    ProdProtonPot: PotentialFunction
-    DeltaG: float
-    Lambda: float
-    Vel: float
-    NStates: int
-    Pu: FloatArray
-    Suv: FloatArray
-    dGuv: FloatArray
-    kuv: FloatArray
-    Iuv: FloatArray
-    k_tot: float
-    MassUsedPreviously: float | None
-    ReacProtonEnergyLevels: FloatArray
-    ReacProtonWaveFunctions: FloatArray
-    ProdProtonEnergyLevels: FloatArray
-    ProdProtonWaveFunctions: FloatArray
+    """Proton coordinate grid in angstrom."""
+
+    reactant_potential: PotentialFunction
+    product_potential: PotentialFunction
+    reaction_free_energy: float
+    reorganization_energy: float
+    electronic_coupling: float
+    n_states: int
+
+    reactant_energies: FloatArray
+    reactant_wavefunctions: FloatArray
+    product_energies: FloatArray
+    product_wavefunctions: FloatArray
+
+    populations: FloatArray
+    """Boltzmann population of each reactant proton state."""
+
+    overlaps: FloatArray
+    """Overlap of each reactant state with each product state."""
+
+    pair_free_energies: FloatArray
+    """Reaction free energy of each reactant/product state pair."""
+
+    rate_contributions: FloatArray
+    """Rate constant contributed by each reactant/product state pair."""
+
+    total_rate_constant: float
+    """Sum of ``rate_contributions``, in inverse seconds."""
+
+    _mass: float | None
+    """Mass the currently stored proton states were solved for."""
 
     def __init__(
         self,
-        ReacProtonPot: PotentialFunction
-        | tuple[FloatArray, FloatArray]
-        | list[FloatArray],
-        ProdProtonPot: PotentialFunction
-        | tuple[FloatArray, FloatArray]
-        | list[FloatArray],
-        DeltaG: float,
-        Lambda: float,
-        Vel: float = 0.0434,
-        NStates: int = 10,
-        NGridPot: int = 256,
-        smooth: str = "bspline",
-        rmin: float | None = None,
-        rmax: float | None = None,
+        reactant_potential: PotentialFunction | TabulatedPotential,
+        product_potential: PotentialFunction | TabulatedPotential,
+        reaction_free_energy: float,
+        reorganization_energy: float,
+        electronic_coupling: float = 0.0434,
+        n_states: int = 10,
+        n_grid: int = 256,
+        fit_method: FitMethod = "bspline",
+        r_min: float | None = None,
+        r_max: float | None = None,
     ) -> None:
-        self.ReacProtonPot, rmin1, rmax1 = _smoothed_potential(
-            ReacProtonPot, smooth, "ReacProtonPot"
+        self.reactant_potential, reactant_range = _as_potential_function(
+            reactant_potential, fit_method, "reactant_potential"
         )
-        self.ProdProtonPot, rmin2, rmax2 = _smoothed_potential(
-            ProdProtonPot, smooth, "ProdProtonPot"
+        self.product_potential, product_range = _as_potential_function(
+            product_potential, fit_method, "product_potential"
         )
 
-        if rmin is None:
-            rmin = (
-                min(rmin1, rmin2) if rmin1 is not None and rmin2 is not None else -0.8
-            )
-        if rmax is None:
-            rmax = max(rmax1, rmax2) if rmax1 is not None and rmax2 is not None else 0.8
-        self.rp = np.linspace(rmin, rmax, NGridPot)
+        # Tabulated potentials set the grid limits from their own data; a pair
+        # of callables has no data to read them off, so fall back to defaults.
+        if reactant_range is not None and product_range is not None:
+            data_min = min(reactant_range[0], product_range[0])
+            data_max = max(reactant_range[1], product_range[1])
+        else:
+            data_min = -_DEFAULT_GRID_HALF_WIDTH
+            data_max = _DEFAULT_GRID_HALF_WIDTH
 
-        self.DeltaG = DeltaG
-        self.Lambda = Lambda
-        self.Vel = Vel
-        self.NStates = NStates
-
-        self.Pu = np.zeros(NStates)
-        self.Suv = np.zeros((NStates, NStates))
-        self.dGuv = np.zeros((NStates, NStates))
-        self.kuv = np.zeros((NStates, NStates))
-        self.Iuv = np.zeros((NStates, NStates))
-        self.k_tot = 0.0
-        self.MassUsedPreviously = None
-
-    def calc_proton_vibrational_states(self, mass: float = massH) -> None:
-        """Solve for the proton vibrational states in both diabatic potentials."""
-        self.MassUsedPreviously = mass
-        E_reac = np.asarray(self.ReacProtonPot(self.rp), dtype=np.float64)
-        E_prod = np.asarray(self.ProdProtonPot(self.rp), dtype=np.float64)
-
-        (
-            self.ReacProtonEnergyLevels,
-            self.ReacProtonWaveFunctions,
-            _,
-        ) = _solve_vibrational_states(self.rp, E_reac, mass, self.NStates)
-        (
-            self.ProdProtonEnergyLevels,
-            self.ProdProtonWaveFunctions,
-            _,
-        ) = _solve_vibrational_states(self.rp, E_prod, mass, self.NStates)
-
-    def calc_reactant_state_distribution(self, T: float = 298.15) -> FloatArray:
-        """Compute the Boltzmann populations of the reactant proton states."""
-        Boltzmann_factors = np.exp(-self.ReacProtonEnergyLevels / kB / T)
-        partition_func = np.sum(Boltzmann_factors)
-        self.Pu = Boltzmann_factors / partition_func
-        return self.Pu
-
-    def calc_proton_overlap_matrix(self) -> FloatArray:
-        """Compute the overlap matrix of reactant and product proton states."""
-        for u in range(self.NStates):
-            for v in range(self.NStates):
-                self.Suv[u, v] = simpson(
-                    self.ReacProtonWaveFunctions[u] * self.ProdProtonWaveFunctions[v],
-                    x=self.rp,
-                )
-        return self.Suv
-
-    def calc_reaction_free_energy_matrix(self) -> FloatArray:
-        """Compute the reaction free energy for each pair of proton states."""
-        for u in range(self.NStates):
-            for v in range(self.NStates):
-                self.dGuv[u, v] = (
-                    self.DeltaG
-                    + (self.ProdProtonEnergyLevels[v] - self.ProdProtonEnergyLevels[0])
-                    - (self.ReacProtonEnergyLevels[u] - self.ReacProtonEnergyLevels[0])
-                )
-        return self.dGuv
-
-    def calc_rate_contribution_matrix(self, T: float = 298.15) -> FloatArray:
-        """Compute the rate contribution of each pair of proton states."""
-        k0 = 2 * np.pi / hbar * self.Vel * self.Vel
-        self.Iuv = (
-            1
-            / np.sqrt(4 * np.pi * self.Lambda * kB * T)
-            * np.exp(-((self.dGuv + self.Lambda) ** 2) / (4 * self.Lambda * kB * T))
+        self.rp = np.linspace(
+            data_min if r_min is None else r_min,
+            data_max if r_max is None else r_max,
+            n_grid,
         )
-        self.kuv = k0 * np.matmul(np.diag(self.Pu), self.Suv * self.Suv * self.Iuv)
-        return self.kuv
+
+        self.reaction_free_energy = reaction_free_energy
+        self.reorganization_energy = reorganization_energy
+        self.electronic_coupling = electronic_coupling
+        self.n_states = n_states
+
+        self.populations = np.zeros(n_states)
+        self.overlaps = np.zeros((n_states, n_states))
+        self.pair_free_energies = np.zeros((n_states, n_states))
+        self.rate_contributions = np.zeros((n_states, n_states))
+        self.total_rate_constant = 0.0
+        self._mass = None
+
+    @property
+    def pair_activation_energies(self) -> FloatArray:
+        """Marcus activation free energy of each reactant/product state pair."""
+        return (self.pair_free_energies + self.reorganization_energy) ** 2 / (
+            4 * self.reorganization_energy
+        )
 
     def calculate(
         self,
-        mass: float = massH,
-        T: float = 298.15,
-        reuse_saved_proton_states: bool = False,
+        mass: float = MASS_PROTON,
+        temperature: float = ROOM_TEMPERATURE,
+        reuse_states: bool = False,
     ) -> float:
-        """Compute the total PCET rate constant at temperature ``T``."""
-        if self.MassUsedPreviously != mass:
-            reuse_saved_proton_states = False
+        """Compute the total PCET rate constant at the given temperature.
 
-        if not reuse_saved_proton_states:
-            self.calc_proton_vibrational_states(mass)
-            self.calc_proton_overlap_matrix()
+        Set ``reuse_states`` to skip re-solving the proton vibrational states,
+        which is worth doing when only the thermodynamic parameters changed.
+        Stored states for a different mass are always re-solved.
+        """
+        if not reuse_states or self._mass != mass:
+            self._solve_states(mass)
+            self._compute_overlaps()
 
-        self.calc_reactant_state_distribution(T)
-        self.calc_reaction_free_energy_matrix()
-        self.calc_rate_contribution_matrix(T)
+        self._compute_populations(temperature)
+        self._compute_pair_free_energies()
+        self._compute_rate_contributions(temperature)
 
-        self.k_tot = np.sum(self.kuv)
-        return self.k_tot
+        self.total_rate_constant = float(np.sum(self.rate_contributions))
+        return self.total_rate_constant
 
-    def set_parameters(
-        self,
-        DeltaG: float | None = None,
-        Lambda: float | None = None,
-        Vel: float | None = None,
-    ) -> None:
-        """Update the reaction free energy, reorganization energy, or coupling."""
-        if DeltaG is not None:
-            self.DeltaG = DeltaG
-        if Lambda is not None:
-            self.Lambda = Lambda
-        if Vel is not None:
-            self.Vel = Vel
+    def _solve_states(self, mass: float) -> None:
+        """Solve for the proton vibrational states in both diabatic potentials."""
+        self._mass = mass
+        reactant_energy = np.asarray(self.reactant_potential(self.rp), dtype=np.float64)
+        product_energy = np.asarray(self.product_potential(self.rp), dtype=np.float64)
 
-    def get_reactant_proton_states(self) -> tuple[FloatArray, FloatArray]:
-        """Return the reactant proton energy levels and wave functions."""
-        return self.ReacProtonEnergyLevels, self.ReacProtonWaveFunctions
+        self.reactant_energies, self.reactant_wavefunctions = _solve_proton_states(
+            self.rp, reactant_energy, mass, self.n_states
+        )
+        self.product_energies, self.product_wavefunctions = _solve_proton_states(
+            self.rp, product_energy, mass, self.n_states
+        )
 
-    def get_product_proton_states(self) -> tuple[FloatArray, FloatArray]:
-        """Return the product proton energy levels and wave functions."""
-        return self.ProdProtonEnergyLevels, self.ProdProtonWaveFunctions
+    def _compute_overlaps(self) -> None:
+        """Overlap integrals between every reactant and product proton state."""
+        products = (
+            self.reactant_wavefunctions[:, np.newaxis, :]
+            * self.product_wavefunctions[np.newaxis, :, :]
+        )
+        self.overlaps = simpson(products, x=self.rp, axis=2)
 
-    def get_reactant_state_distribution(self) -> FloatArray:
-        """Return the Boltzmann populations of the reactant proton states."""
-        return self.Pu
+    def _compute_populations(self, temperature: float) -> None:
+        """Boltzmann populations of the reactant proton states."""
+        boltzmann_factors = np.exp(-self.reactant_energies / BOLTZMANN / temperature)
+        self.populations = boltzmann_factors / np.sum(boltzmann_factors)
 
-    def get_proton_overlap_matrix(self) -> FloatArray:
-        """Return the overlap matrix of reactant and product proton states."""
-        return self.Suv
+    def _compute_pair_free_energies(self) -> None:
+        """Reaction free energy for each pair of proton states."""
+        product_excitation = self.product_energies - self.product_energies[0]
+        reactant_excitation = self.reactant_energies - self.reactant_energies[0]
+        self.pair_free_energies = (
+            self.reaction_free_energy + product_excitation[np.newaxis, :]
+        ) - reactant_excitation[:, np.newaxis]
 
-    def get_reaction_free_energy_matrix(self) -> FloatArray:
-        """Return the reaction free energy matrix."""
-        return self.dGuv
+    def _compute_rate_contributions(self, temperature: float) -> None:
+        """Rate constant contributed by each pair of proton states."""
+        thermal_energy = BOLTZMANN * temperature
+        reorganization = self.reorganization_energy
+        prefactor = 2 * np.pi / HBAR * self.electronic_coupling**2
 
-    def get_activation_free_energy_matrix(self) -> FloatArray:
-        """Return the Marcus activation free energy matrix."""
-        return (self.dGuv + self.Lambda) ** 2 / (4 * self.Lambda)
+        # Marcus nuclear factor for each state pair
+        marcus_factors = (
+            1
+            / np.sqrt(4 * np.pi * reorganization * thermal_energy)
+            * np.exp(
+                -((self.pair_free_energies + reorganization) ** 2)
+                / (4 * reorganization * thermal_energy)
+            )
+        )
 
-    def get_rate_contribution_matrix(self) -> FloatArray:
-        """Return the rate contribution matrix."""
-        return self.kuv
-
-    def get_total_rate_constant(self) -> float:
-        """Return the total PCET rate constant."""
-        return self.k_tot
+        self.rate_contributions = (
+            prefactor
+            * self.populations[:, np.newaxis]
+            * self.overlaps**2
+            * marcus_factors
+        )
