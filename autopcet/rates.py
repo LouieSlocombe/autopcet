@@ -4,7 +4,14 @@ import numpy as np
 from scipy.integrate import simpson
 
 from ._types import FitMethod, FloatArray, PotentialFunction, TabulatedPotential
-from .constants import BOLTZMANN, HBAR, MASS_PROTON, ROOM_TEMPERATURE
+from .constants import (
+    ANGSTROM_TO_BOHR,
+    BOLTZMANN,
+    HARTREE_TO_EV,
+    HBAR,
+    MASS_PROTON,
+    ROOM_TEMPERATURE,
+)
 from .fgh import _solve_proton_states
 from .potentials import fit_potential
 from .utils import is_array
@@ -214,3 +221,31 @@ class PCET:
             * self.overlaps**2
             * marcus_factors
         )
+
+
+def donor_acceptor_distribution(
+    distance: FloatArray,
+    equilibrium: float,
+    force_constant: float,
+    temperature: float = ROOM_TEMPERATURE,
+) -> FloatArray:
+    """Harmonic ``P(R)`` for the proton donor-acceptor mode, in angstrom.
+
+    The donor-acceptor coordinate is treated as a classical harmonic oscillator
+    about ``equilibrium``, so its distribution is the Boltzmann weight of
+    ``k (R - R_eq)^2 / 2``. ``force_constant`` is in atomic units, as
+    :func:`autopcet.gaussian_io.effective_da_mode` returns it.
+
+    The weights are returned unnormalized: a rate constant thermally averaged
+    over R needs both ``P(R)`` and ``k(R)`` integrated on the same grid, so
+    normalization is left to the caller.
+    """
+    energy = (
+        0.5
+        * force_constant
+        * (distance - equilibrium) ** 2
+        * ANGSTROM_TO_BOHR**2
+        * HARTREE_TO_EV
+    )
+    weights: FloatArray = np.exp(-energy / (BOLTZMANN * temperature))
+    return weights

@@ -36,6 +36,12 @@ scripts = [
   "ase>=3.23",
 ]
 
+[project.scripts]
+autopcet-align-average = "autopcet.cli.align_average:main"
+autopcet-keff = "autopcet.cli.calc_keff:main"
+autopcet-scan-da = "autopcet.cli.scan_da_distance:main"
+autopcet-scan-proton = "autopcet.cli.scan_proton_coord:main"
+
 [project.urls]
 Homepage = "https://github.com/LouieSlocombe/autopcet"
 Issues = "https://github.com/LouieSlocombe/autopcet/issues"
@@ -62,7 +68,12 @@ autopcet = ["py.typed"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers --cov=autopcet --cov-report=term-missing"
 testpaths = ["tests"]
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # ASE still reshapes arrays the way NumPy 2.5 deprecated. It fires while ASE
+  # parses a structure file for the command-line helpers, and is not ours to fix.
+  "ignore:Setting the shape on a NumPy array:DeprecationWarning:ase",
+]
 
 [tool.coverage.run]
 branch = true
@@ -74,6 +85,8 @@ show_missing = true
 exclude_also = [
   # numba-compiled functions cannot be traced by coverage.py
   "@jit",
+  # console script entry points are exercised through their main()
+  'if __name__ == "__main__":',
   # typing-only stub bodies of @overload and Protocol declarations
   '^\s*\.\.\.$',
 ]
@@ -93,7 +106,9 @@ pretty = true
 show_error_codes = true
 strict = true
 warn_unreachable = true
+# ASE's Atoms methods are only partially annotated
+untyped_calls_exclude = ["ase"]
 
 [[tool.mypy.overrides]]
-module = ["numba.*", "scipy.*"]
+module = ["ase.*", "numba.*", "scipy.*"]
 ignore_missing_imports = true

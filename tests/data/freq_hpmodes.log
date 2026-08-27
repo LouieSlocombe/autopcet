@@ -1,0 +1,34 @@
+ Entering Gaussian System, Link 0=g16
+ #P B3LYP/6-31+G(d,p) Freq=HPmodes Nosymm
+
+                          Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+     1          8           0        0.000000    0.000000    0.000000
+     2          8           0        2.700000    0.000000    0.000000
+     3          1           0        0.980000    0.000000    0.000000
+ ---------------------------------------------------------------------
+
+ Harmonic frequencies (cm**-1), IR intensities (KM/Mole), Raman scattering
+ activities (A**4/AMU), depolarization ratios for plane and unpolarized
+ incident light, reduced masses (AMU), force constants (mDyne/A) and normal
+ coordinates:
+                      1                      2                      3
+                      A                      A                      A
+ Frequencies ---               412.1260              1637.8279              3812.4145
+ Reduced masses ---             12.4471              1.0836              1.0451
+ Force constants ---             1.2456             1.7126             8.9497
+ IR Intensities ---             12.3456             67.4527              4.2226
+  Coord Atom Element:
+     1     1     8     -0.50000      0.00000      0.00000
+     2     1     8      0.00000      0.40000      0.00000
+     3     1     8      0.00000      0.00000      0.00000
+     1     2     8      0.50000      0.00000      0.00000
+     2     2     8      0.00000      0.40000      0.00000
+     3     2     8      0.00000      0.00000      0.00000
+     1     3     1      0.00000      0.00000      0.00000
+     2     3     1      0.00000     -0.80000      0.00000
+     3     3     1      0.00000      0.00000      1.00000
+ Normal termination of Gaussian 16.

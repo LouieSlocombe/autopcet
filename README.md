@@ -32,8 +32,9 @@ python -m pip install -e .
 On Windows PowerShell, activate the environment with
 `.venv\Scripts\Activate.ps1` instead.
 
-The examples additionally use matplotlib and pandas, and the helper scripts
-use ASE; install them through the optional extras:
+The examples additionally use matplotlib and pandas, and the `autopcet-*`
+command-line helpers use ASE to read structure files; install them through the
+optional extras:
 
 ```bash
 python -m pip install -e ".[examples]"
@@ -85,6 +86,22 @@ Once `calculate` has run, the per-state results are plain attributes:
 `rate_contributions`, and `total_rate_constant`. The thermodynamic parameters
 are attributes too, so a sweep just reassigns one and calls `calculate` again
 with `reuse_states=True` to keep the proton states it already solved for.
+
+A rate constant computed at one proton donor-acceptor distance is usually
+averaged over the distribution of distances the mode samples.
+`donor_acceptor_distribution` builds the harmonic `P(R)` from the effective
+force constant that `autopcet-keff` reports:
+
+```python
+from scipy.integrate import simpson
+
+from autopcet import donor_acceptor_distribution
+
+# distances: the grid k(R) was evaluated on; force_constant in atomic units
+distribution = donor_acceptor_distribution(distances, 2.58, 0.0443, temperature=298)
+distribution /= simpson(distribution, x=distances)
+average_rate = simpson(distribution * rates, x=distances)
+```
 
 To quantify the (non)adiabaticity of a reaction from the same inputs:
 
@@ -146,9 +163,93 @@ at the time; results can drift in the third significant digit across releases.
 `tests/test_examples.py` re-runs examples 1 and 5 and compares them at a
 relative tolerance.
 
-The `scripts/` directory holds standalone Gaussian/ASE helpers for preparing
-the inputs of such calculations (potential scans, structure alignment,
-effective force constants); see [scripts/README.md](scripts/README.md).
+## Command-line tools
+
+Installing the package also installs four helpers that prepare the Gaussian
+inputs a calculation like the ones above starts from. They wrap
+`autopcet.structure` and `autopcet.gaussian_io`, so anything they do is also
+available from Python. Reading structure files in formats other than xyz needs
+ASE, from the `scripts` extra. Every one of them takes `--help`.
+
+The four run in the order below, which is the order a proton potential is built
+in.
+
+### 1. Scan the proton donor-acceptor distance
+
+`autopcet-scan-da` takes the fully optimized reactant and product structures --
+the atoms must appear in the same order in both -- and writes, for each
+donor-acceptor distance $`R`$, a pair of Gaussian inputs that reoptimize the two
+states with $`R`$ frozen:
+
+```bash
+autopcet-scan-da -r reac.xyz -p prod.xyz -D 0 -A 2 --start 2.4 --stop 2.8 --points 9
+```
+
+`-D` and `-A` are the 0-based indices of the proton donor and acceptor. Charges
+and multiplicities default to a neutral singlet reactant and a +1 doublet
+product; `--reactant-charge` and friends override them. This assumes the two
+diabatic electronic states differ only in the charge of the whole system, as
+they do in homogeneous electrochemical PCET or in photoexcited PCET with an
+external photoreceptor.
+
+`--template` points at a file holding your own Gaussian header, in place of the
+built-in B3LYP/6-31+G(d,p) one. It is formatted with `{state}`, `{charge}`, and
+`{multiplicity}`.
+
+> [!NOTE]
+> Set `Nosymm` in these constrained optimizations. Without it Gaussian rotates
+> the molecule and the later steps will not work.
+
+### 2. Align and average the structures
+
+`autopcet-align-average` overlays the reactant and product so the proton donor
+and acceptor are superimposed along Z with their midpoint at the origin, rotates
+the product about that axis to minimize the RMSD to the reactant, and averages
+the two geometries:
+
+```bash
+autopcet-align-average -r reac.xyz -p prod.xyz --r-donor 1 --r-acceptor 2 --p-donor 1 --p-acceptor 2
+```
+
+These indices are 1-based, as printed by most quantum chemistry programs. The
+aligned intermediates are written alongside their inputs, and the average goes
+to `AVERAGE_STRUCTURE.xyz` unless `-o` says otherwise.
+
+From the averaged structure, optimize the proton on the donor for the reactant
+and on the acceptor for the product, with every other nucleus frozen. There is
+no helper for that step.
+
+### 3. Scan the proton along its transfer axis
+
+`autopcet-scan-proton` builds the axis through the two optimized proton
+positions and writes a Gaussian single point for each point along it. Run it
+once per state:
+
+```bash
+autopcet-scan-proton -r averaged_optH_reac.xyz -p averaged_optH_prod.xyz -H 1 --state reactant --charge 0 --multiplicity 1
+```
+
+`-H` is the 0-based index of the transferring proton. The scan spans 1.7 times
+the distance between the two equilibrium proton positions, and never less than
+1 Å, so that the proton comes close to both the donor and the acceptor.
+
+### 4. Effective donor-acceptor force constant
+
+`autopcet-keff` projects the normal modes of a Gaussian frequency job onto the
+donor-acceptor axis and prints the effective force constant (a.u.), reduced mass
+(amu), and frequency (cm<sup>-1</sup>) of the donor-acceptor mode:
+
+```bash
+autopcet-keff --log freq.log -D 0 -A 1
+```
+
+The force constant is what `donor_acceptor_distribution` needs to build the
+$`P(R)`$ the rate constant is thermally averaged over.
+
+> [!NOTE]
+> Run the frequency job with `#P` and `freq=HPmodes`. The parser reads the
+> high-precision normal modes those settings print and will not work without
+> them.
 
 ## Development
 
@@ -184,9 +285,9 @@ pre-commit run --all-files
 .
 ├── .github/workflows/ci.yml   # automated quality and packaging checks
 ├── autopcet/                  # the installable, typed package
+│   └── cli/                   # the autopcet-* command-line helpers
 ├── build_tools/               # optional Conda setup
 ├── examples/                  # worked examples with reference outputs
-├── scripts/                   # Gaussian/ASE helper scripts
 ├── tests/                     # behavior-focused tests
 └── pyproject.toml             # project metadata and tool configuration
 ```

@@ -13,7 +13,16 @@ from example1_data import (
 )
 from scipy.integrate import simpson
 
-from autopcet import MASS_DEUTERON, MASS_PROTON, PCET
+from autopcet import (
+    ANGSTROM_TO_BOHR,
+    BOLTZMANN,
+    HARTREE_TO_EV,
+    MASS_DEUTERON,
+    MASS_PROTON,
+    PCET,
+    ROOM_TEMPERATURE,
+    donor_acceptor_distribution,
+)
 from autopcet._types import FitMethod, PotentialFunction
 
 
@@ -223,3 +232,74 @@ def test_invalid_fit_method_is_rejected(
             REORGANIZATION_ENERGY,
             fit_method="nope",  # type: ignore[arg-type]
         )
+
+
+# the effective donor-acceptor force constant and equilibrium distance of the
+# benzimidazole-phenol system in example 3, in atomic units and angstrom
+FORCE_CONSTANT = 0.0443
+EQUILIBRIUM_DISTANCE = 2.58
+
+
+def test_donor_acceptor_distribution_peaks_at_the_equilibrium_distance() -> None:
+    """P(R) is the Boltzmann weight of a harmonic well centred on R_eq."""
+    # a grid centred on the equilibrium distance, so the weights mirror about it
+    distances = np.linspace(EQUILIBRIUM_DISTANCE - 0.3, EQUILIBRIUM_DISTANCE + 0.3, 61)
+
+    distribution = donor_acceptor_distribution(
+        distances, EQUILIBRIUM_DISTANCE, FORCE_CONSTANT, TEMPERATURE
+    )
+
+    assert distances[np.argmax(distribution)] == pytest.approx(EQUILIBRIUM_DISTANCE)
+    assert np.max(distribution) == pytest.approx(1.0)
+    assert distribution == pytest.approx(distribution[::-1])
+
+
+def test_donor_acceptor_distribution_matches_the_boltzmann_factor() -> None:
+    """A displaced point carries exp(-k dR^2 / 2kT), with k converted from a.u."""
+    displacement = 0.1
+    energy = (
+        0.5 * FORCE_CONSTANT * displacement**2 * ANGSTROM_TO_BOHR**2 * HARTREE_TO_EV
+    )
+
+    weight = donor_acceptor_distribution(
+        np.array([EQUILIBRIUM_DISTANCE + displacement]),
+        EQUILIBRIUM_DISTANCE,
+        FORCE_CONSTANT,
+        TEMPERATURE,
+    )
+
+    assert weight[0] == pytest.approx(np.exp(-energy / (BOLTZMANN * TEMPERATURE)))
+
+
+def test_donor_acceptor_distribution_broadens_with_temperature() -> None:
+    """A hotter donor-acceptor mode samples short and long R more readily."""
+    distances = np.linspace(2.3, 2.9, 61)
+
+    cold = donor_acceptor_distribution(
+        distances, EQUILIBRIUM_DISTANCE, FORCE_CONSTANT, 200.0
+    )
+    hot = donor_acceptor_distribution(
+        distances, EQUILIBRIUM_DISTANCE, FORCE_CONSTANT, 400.0
+    )
+
+    cold /= simpson(cold, x=distances)
+    hot /= simpson(hot, x=distances)
+
+    def width(distribution: np.ndarray) -> float:
+        mean = simpson(distribution * distances, x=distances)
+        return float(simpson(distribution * (distances - mean) ** 2, x=distances))
+
+    assert width(hot) > width(cold)
+
+
+def test_donor_acceptor_distribution_defaults_to_room_temperature() -> None:
+    """Leaving the temperature out matches passing ROOM_TEMPERATURE explicitly."""
+    distances = np.linspace(2.4, 2.8, 21)
+
+    assert donor_acceptor_distribution(
+        distances, EQUILIBRIUM_DISTANCE, FORCE_CONSTANT
+    ) == pytest.approx(
+        donor_acceptor_distribution(
+            distances, EQUILIBRIUM_DISTANCE, FORCE_CONSTANT, ROOM_TEMPERATURE
+        )
+    )

@@ -10,13 +10,11 @@ from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
 from autopcet import (
-    ANGSTROM_TO_BOHR,
-    BOLTZMANN,
-    HARTREE_TO_EV,
     KCAL_TO_EV,
     MASS_DEUTERON,
     MASS_PROTON,
     PCET,
+    donor_acceptor_distribution,
     fit_poly6,
     fit_poly8,
 )
@@ -171,20 +169,6 @@ rates_d_fine = np.exp(
         fine_grid
     )
 )
-
-
-def donor_acceptor_distribution(
-    distance: np.ndarray, equilibrium: float, force_constant: float, temperature: float
-) -> np.ndarray:
-    """Harmonic P(R) for the proton donor-acceptor mode."""
-    energy = (
-        0.5
-        * force_constant
-        * (distance - equilibrium) ** 2
-        * ANGSTROM_TO_BOHR**2
-        * HARTREE_TO_EV
-    )
-    return np.exp(-energy / (BOLTZMANN * temperature))
 
 
 distribution = donor_acceptor_distribution(

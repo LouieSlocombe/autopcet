@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 
 type FloatArray = npt.NDArray[np.float64]
+type IntArray = npt.NDArray[np.int_]
 type PotentialFunction = Callable[[FloatArray], FloatArray]
 
 type FitMethod = Literal["poly6", "poly8", "bspline"]

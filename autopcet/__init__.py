@@ -7,6 +7,7 @@ from .constants import (
     ANGSTROM_TO_CM,
     ANGSTROM_TO_NM,
     AU_TIME_TO_SECONDS,
+    AU_TO_MDYNE_PER_ANGSTROM,
     BOHR_TO_ANGSTROM,
     BOLTZMANN,
     CM_TO_ANGSTROM,
@@ -23,6 +24,7 @@ from .constants import (
     KCAL_TO_HARTREE,
     MASS_DEUTERON,
     MASS_PROTON,
+    MDYNE_PER_ANGSTROM_TO_AU,
     NM_TO_ANGSTROM,
     PLANCK,
     ROOM_TEMPERATURE,
@@ -31,6 +33,13 @@ from .constants import (
 )
 from .edl import fermi_distribution, make_edl_model
 from .fgh import fgh_1d
+from .gaussian_io import (
+    EffectiveMode,
+    GaussianFrequencies,
+    effective_da_mode,
+    read_frequencies,
+    write_gaussian_input,
+)
 from .kappa import KappaCoupling
 from .potentials import (
     fit_bspline,
@@ -46,7 +55,18 @@ from .potentials import (
     poly6,
     poly8,
 )
-from .rates import PCET
+from .rates import PCET, donor_acceptor_distribution
+from .structure import (
+    align_da_to_z,
+    average_structures,
+    centre_da_midpoint,
+    minimize_rmsd_rotation,
+    read_xyz,
+    rotation_about_y,
+    rotation_about_z,
+    round_to_xyz_precision,
+    write_xyz,
+)
 from .utils import find_roots, is_array, is_number
 
 __version__ = _version("autopcet")
@@ -56,6 +76,7 @@ __all__ = [
     "ANGSTROM_TO_CM",
     "ANGSTROM_TO_NM",
     "AU_TIME_TO_SECONDS",
+    "AU_TO_MDYNE_PER_ANGSTROM",
     "BOHR_TO_ANGSTROM",
     "BOLTZMANN",
     "CM_TO_ANGSTROM",
@@ -72,14 +93,22 @@ __all__ = [
     "KCAL_TO_HARTREE",
     "MASS_DEUTERON",
     "MASS_PROTON",
+    "MDYNE_PER_ANGSTROM_TO_AU",
     "NM_TO_ANGSTROM",
     "PCET",
     "PLANCK",
     "ROOM_TEMPERATURE",
     "SPEED_OF_LIGHT",
     "WAVENUMBER_TO_EV",
+    "EffectiveMode",
+    "GaussianFrequencies",
     "KappaCoupling",
     "__version__",
+    "align_da_to_z",
+    "average_structures",
+    "centre_da_midpoint",
+    "donor_acceptor_distribution",
+    "effective_da_mode",
     "fermi_distribution",
     "fgh_1d",
     "find_roots",
@@ -95,7 +124,15 @@ __all__ = [
     "make_edl_model",
     "make_inverted_morse",
     "make_morse",
+    "minimize_rmsd_rotation",
     "morse",
     "poly6",
     "poly8",
+    "read_frequencies",
+    "read_xyz",
+    "rotation_about_y",
+    "rotation_about_z",
+    "round_to_xyz_precision",
+    "write_gaussian_input",
+    "write_xyz",
 ]

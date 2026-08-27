@@ -10,6 +10,8 @@ from scipy.constants import (
     angstrom,
     calorie,
     centi,
+    dyne,
+    milli,
     nano,
     speed_of_light,
     value,
@@ -49,6 +51,13 @@ DALTON_TO_ELECTRON_MASS: float = value("atomic mass constant") / value("electron
 ELECTRON_MASS_TO_DALTON: float = 1 / DALTON_TO_ELECTRON_MASS
 
 AU_TIME_TO_SECONDS: float = value("atomic unit of time")
+
+AU_TO_MDYNE_PER_ANGSTROM: float = (
+    value("Hartree energy") / value("Bohr radius") ** 2 / (milli * dyne / angstrom)
+)
+"""Force constants: atomic units (hartree/bohr^2) to the mDyne/A Gaussian prints."""
+
+MDYNE_PER_ANGSTROM_TO_AU: float = 1 / AU_TO_MDYNE_PER_ANGSTROM
 
 DEBYE_TO_AU: float = (1e-21 / speed_of_light) / value(
     "atomic unit of electric dipole mom."
