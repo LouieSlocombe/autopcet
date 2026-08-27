@@ -65,7 +65,13 @@ from .potentials import (
     poly6,
     poly8,
 )
-from .rates import PCET, donor_acceptor_distribution
+from .rates import (
+    PCET,
+    donor_acceptor_distribution,
+    driving_force_sweep,
+    kinetic_isotope_effect,
+    temperature_sweep,
+)
 from .structure import (
     align_da_to_z,
     average_structures,
@@ -121,6 +127,7 @@ __all__ = [
     "average_structures",
     "centre_da_midpoint",
     "donor_acceptor_distribution",
+    "driving_force_sweep",
     "effective_da_mode",
     "effective_mode_from_vibrations",
     "fermi_distribution",
@@ -134,6 +141,7 @@ __all__ = [
     "inverted_morse",
     "is_array",
     "is_number",
+    "kinetic_isotope_effect",
     "make_double_well",
     "make_edl_model",
     "make_inverted_morse",
@@ -153,6 +161,7 @@ __all__ = [
     "run_da_scan",
     "run_proton_scan",
     "run_vibrations",
+    "temperature_sweep",
     "write_gaussian_input",
     "write_xyz",
 ]

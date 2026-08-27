@@ -22,22 +22,11 @@ from autopcet import (
     PCET,
     ROOM_TEMPERATURE,
     donor_acceptor_distribution,
+    driving_force_sweep,
+    kinetic_isotope_effect,
+    temperature_sweep,
 )
 from autopcet._types import FitMethod, PotentialFunction
-
-
-@pytest.fixture
-def system(
-    reactant_potential: PotentialFunction, product_potential: PotentialFunction
-) -> PCET:
-    """A fresh PCET system set up exactly as in example 1."""
-    return PCET(
-        reactant_potential,
-        product_potential,
-        REACTION_FREE_ENERGY,
-        REORGANIZATION_ENERGY,
-        electronic_coupling=ELECTRONIC_COUPLING,
-    )
 
 
 def test_rate_constant_is_positive_and_kie_is_normal(system: PCET) -> None:
@@ -303,3 +292,79 @@ def test_donor_acceptor_distribution_defaults_to_room_temperature() -> None:
             distances, EQUILIBRIUM_DISTANCE, FORCE_CONSTANT, ROOM_TEMPERATURE
         )
     )
+
+
+def test_a_temperature_sweep_matches_calculating_each_point(system: PCET) -> None:
+    """The sweep reproduces what a hand-written loop over calculate returns."""
+    temperatures = np.array([250.0, 300.0, 350.0])
+
+    swept = temperature_sweep(system, temperatures, MASS_PROTON)
+    one_by_one = [
+        system.calculate(MASS_PROTON, temperature=temperature)
+        for temperature in temperatures
+    ]
+
+    assert swept == pytest.approx(one_by_one)
+    assert np.all(np.diff(swept) > 0)
+
+
+def test_a_temperature_sweep_solves_the_proton_states_only_once(
+    system: PCET, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The states do not depend on temperature, so the FGH solve is not repeated."""
+    solves = 0
+    solve_states = PCET._solve_states
+
+    def counted(self: PCET, mass: float) -> None:
+        nonlocal solves
+        solves += 1
+        solve_states(self, mass)
+
+    monkeypatch.setattr(PCET, "_solve_states", counted)
+    temperature_sweep(system, np.linspace(250.0, 400.0, 8))
+
+    assert solves == 1
+
+
+def test_a_driving_force_sweep_traces_the_marcus_curve(system: PCET) -> None:
+    """The rate peaks near -lambda and falls away on both sides of it."""
+    free_energies = np.linspace(-2.0, 0.5, 40)
+
+    rates = driving_force_sweep(system, free_energies)
+
+    peak = free_energies[int(np.argmax(rates))]
+    assert -REORGANIZATION_ENERGY - 1.0 < peak < 0.0
+    assert rates[0] < np.max(rates)
+    assert rates[-1] < np.max(rates)
+
+
+def test_a_driving_force_sweep_puts_the_driving_force_back(
+    system: PCET, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The swept input is restored, even when a point raises partway through."""
+    original = system.reaction_free_energy
+
+    driving_force_sweep(system, np.linspace(-1.5, 0.0, 5))
+    assert system.reaction_free_energy == original
+
+    def explodes(self: PCET, *args: object, **kwargs: object) -> float:
+        raise RuntimeError("the calculation failed")
+
+    monkeypatch.setattr(PCET, "calculate", explodes)
+    with pytest.raises(RuntimeError, match="the calculation failed"):
+        driving_force_sweep(system, np.array([-1.0, -0.5]))
+
+    assert system.reaction_free_energy == original
+
+
+def test_the_kinetic_isotope_effect_is_the_ratio_of_the_two_rates(
+    system: PCET,
+) -> None:
+    """k_H / k_D at one temperature, matching the two calculate calls it makes."""
+    kie = kinetic_isotope_effect(system, temperature=TEMPERATURE)
+
+    rate_h = system.calculate(MASS_PROTON, temperature=TEMPERATURE)
+    rate_d = system.calculate(MASS_DEUTERON, temperature=TEMPERATURE)
+
+    assert kie == pytest.approx(rate_h / rate_d)
+    assert kie > 1

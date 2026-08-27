@@ -9,7 +9,9 @@ over pairs of reactant/product vibronic states (`PCET`), and evaluates
 kinetic isotope effects (KIEs). It also provides a nonadiabaticity analysis
 following Georgievskii and Stuchebrukhov (`KappaCoupling`) and an electrical
 double layer (EDL) model of the interfacial potential drop for
-electrochemical PCET (`make_edl_model`).
+electrochemical PCET (`make_edl_model`). Everything it computes can be drawn
+with `autopcet.plotting`, an optional matplotlib layer described under
+[Plotting](#plotting).
 
 ## Requirements
 
@@ -32,17 +34,19 @@ python -m pip install -e .
 On Windows PowerShell, activate the environment with
 `.venv\Scripts\Activate.ps1` instead.
 
-The examples additionally use matplotlib and pandas, and ASE powers both the
-in-process scan runners in `autopcet.ase_io` and the structure-file reading of
-the `autopcet-*` command-line helpers; install them through the optional
-extras:
+`autopcet.plotting` needs matplotlib, the examples additionally use pandas,
+and ASE powers both the in-process scan runners in `autopcet.ase_io` and the
+structure-file reading of the `autopcet-*` command-line helpers; install them
+through the optional extras:
 
 ```bash
+python -m pip install -e ".[plotting]"
 python -m pip install -e ".[examples]"
 python -m pip install -e ".[ase]"
 ```
 
-(`scripts` is kept as a legacy alias for the `ase` extra.)
+(`examples` includes `plotting`, and `scripts` is kept as a legacy alias for
+the `ase` extra.) Importing `autopcet` itself never needs any of them.
 
 For development, install the dev dependency group as well:
 
@@ -89,6 +93,9 @@ Once `calculate` has run, the per-state results are plain attributes:
 `rate_contributions`, and `total_rate_constant`. The thermodynamic parameters
 are attributes too, so a sweep just reassigns one and calls `calculate` again
 with `reuse_states=True` to keep the proton states it already solved for.
+`temperature_sweep` and `driving_force_sweep` do exactly that over a grid --
+one FGH solve for the whole sweep -- and `kinetic_isotope_effect` returns
+`k(H) / k(D)` in one call.
 
 A rate constant computed at one proton donor-acceptor distance is usually
 averaged over the distribution of distances the mode samples.
@@ -126,6 +133,78 @@ electron masses (atomic units), unless a name says otherwise. Unit conversions
 are exported as named constants (`KCAL_TO_EV`, `HARTREE_TO_EV`,
 `ANGSTROM_TO_BOHR`, ...), as are the physical constants (`BOLTZMANN`, `HBAR`,
 `MASS_PROTON`, `MASS_DEUTERON`, ...).
+
+## Plotting
+
+`autopcet.plotting` draws the quantities above in a consistent house style. It
+needs matplotlib, from the `plotting` extra, and is imported explicitly --
+`import autopcet` itself never pulls matplotlib in:
+
+```python
+import matplotlib.pyplot as plt
+
+from autopcet.plotting import plot_proton_states, plot_state_pair_map, use_style
+
+use_style()
+
+# the two diabats with their vibrational states, one panel each
+reactant_axes, _ = plot_proton_states(system, n_states=6)
+reactant_axes.get_figure().savefig("proton_states.png")
+
+# which pairs of vibronic states actually carry the rate constant
+ax = plot_state_pair_map(system, "contribution")
+ax.get_figure().savefig("state_pairs.png")
+plt.close("all")
+```
+
+Every function takes an optional axes to draw on and returns the axes it drew,
+so figures compose. None of them saves, shows, or closes a figure, and none
+sets an axis limit that was not read off the data -- placing and saving the
+figure stays yours.
+
+What it can draw:
+
+| Function | Figure |
+| --- | --- |
+| `plot_proton_states`, `plot_state_ladder` | diabatic potentials with their vibrational states |
+| `plot_isotope_states` | proton and deuteron states on shared axes |
+| `plot_potential_family` | one proton potential per donor-acceptor distance |
+| `plot_potential_fit` | a fitted potential against the data, with residuals |
+| `plot_state_pair_map`, `plot_state_pair_grid` | the (u, v) matrices as annotated heat maps |
+| `plot_populations` | Boltzmann populations of the reactant states |
+| `plot_arrhenius`, `plot_kie_vs_temperature` | rate constant and KIE against temperature |
+| `plot_rate_vs_driving_force` | the Marcus curve, marking $`-\lambda`$ |
+| `plot_thermal_average` | $`k(R)`$, $`P(R)`$, and the product that decides the average |
+| `plot_crossing`, `plot_diabats_and_adiabats` | the `KappaCoupling` nonadiabaticity analysis |
+| `plot_edl_profile` | the interfacial potential drop of an EDL model |
+| `plot_distance_scan`, `plot_proton_scan` | the raw energies off an ASE scan |
+
+The sweeps behind the temperature and driving-force figures are ordinary
+library functions, so they work without matplotlib:
+
+```python
+import numpy as np
+
+from autopcet import temperature_sweep
+from autopcet.plotting import plot_arrhenius
+
+temperatures = np.linspace(250, 400, 16)
+plot_arrhenius(temperatures, temperature_sweep(system, temperatures))
+```
+
+A sweep leaves the system holding the results of its last point, as any
+`calculate` call does; the input it assigns is put back before it returns.
+
+Colours, sizes, and the axis labels come from `autopcet.plotting.style`.
+`use_style()` sets them globally, `style_context()` only for a block, and both
+take overrides:
+
+```python
+from autopcet.plotting import style_context
+
+with style_context(**{"axes.labelsize": 18}):
+    ...
+```
 
 ## Examples
 
@@ -375,7 +454,8 @@ pre-commit run --all-files
 .
 ├── .github/workflows/ci.yml   # automated quality and packaging checks
 ├── autopcet/                  # the installable, typed package
-│   └── cli/                   # the autopcet-* command-line helpers
+│   ├── cli/                   # the autopcet-* command-line helpers
+│   └── plotting/              # optional matplotlib figures (plotting extra)
 ├── build_tools/               # optional Conda setup
 ├── examples/                  # worked examples with reference outputs
 ├── tests/                     # behavior-focused tests

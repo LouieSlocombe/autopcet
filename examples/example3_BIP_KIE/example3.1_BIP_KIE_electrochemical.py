@@ -1,13 +1,11 @@
 """Electrochemical KIE for a benzimidazole-phenol (BIP) system, integrated over
 the electrode states and thermally averaged over the donor-acceptor distance."""
 
-import colorsys
 from typing import TextIO
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.axes import Axes
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
@@ -21,6 +19,13 @@ from autopcet import (
     fermi_distribution,
     fit_poly6,
     fit_poly8,
+)
+from autopcet.plotting import (
+    distance_colors,
+    plot_potential_family,
+    plot_proton_states,
+    prepare_axes_grid,
+    use_style,
 )
 
 # =========================================================================================
@@ -51,9 +56,6 @@ REACTION_FREE_ENERGY = 0
 N_STATES = 20  # how many states to include in the rate constant calculation
 STATES_TO_SHOW = 7  # how many states to plot/print
 
-# wave functions and energies share an axis, so scale the wave functions down
-WAVEFUNCTION_SCALE = 0.06
-
 FORCE_CONSTANT = 0.0443  # effective proton donor-acceptor force constant, a.u.
 EQUILIBRIUM_DISTANCE = 2.58  # equilibrium proton donor-acceptor distance
 
@@ -62,9 +64,7 @@ EQUILIBRIUM_DISTANCE = 2.58  # equilibrium proton donor-acceptor distance
 # =========================================================================================
 
 # rainbow colors for plotting the proton potentials
-colors = [
-    colorsys.hls_to_rgb(hue, 0.5, 0.85) for hue in np.linspace(0.0, 0.8, len(distances))
-]
+colors = distance_colors(len(distances))
 
 reactant_potentials = []
 product_potentials = []
@@ -99,51 +99,26 @@ for i, distance in enumerate(distances):
     reactant_potentials.append(fit_reduced(reduced["x"], reduced_energies))
     product_potentials.append(fit_poly8(oxidized["x"], oxidized_energies))
 
-# plot the proton potentials
-fig = plt.figure(figsize=(5, 7))
-gs = fig.add_gridspec(2, hspace=0)
-ax1, ax2 = gs.subplots(sharex=True, sharey=True)
+# plot the proton potentials, one curve per donor-acceptor distance
+use_style()
 
-for i in range(len(distances)):
-    ax1.plot(rp, reactant_potentials[i](rp), "-", lw=2, color=colors[i])
-    ax2.plot(rp, product_potentials[i](rp), "-", lw=2, color=colors[i])
+ax1, ax2 = prepare_axes_grid(
+    None, "Plotting the potentials", 2, 1, sharex=True, sharey=True, figsize=(5, 7)
+)
+for axis, potentials in ((ax1, reactant_potentials), (ax2, product_potentials)):
+    plot_potential_family(rp, potentials, axis, colors=colors)
 
+ax1.set_xlabel("")
 ax2.set_xlim(-1, 1)
 ax2.set_ylim(0, 2.2)
-ax2.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
-ax1.set_ylabel(r"$E$ / eV", fontsize=16)
-ax2.set_ylabel(r"$E$ / eV", fontsize=16)
 ax2.set_xticks(np.arange(-1.0, 1.5, 0.5))
-ax1.tick_params(labelsize=14)
-ax2.tick_params(labelsize=14)
-plt.tight_layout()
-plt.savefig("Proton_potentials.png", dpi=300)
-plt.clf()
+ax1.get_figure().savefig("Proton_potentials.png")
+plt.close("all")
 
 # =========================================================================================
 # Calculate the KIE of electrochemical PCET of BIP at different R and eta = 0
 # The standard rate constant is approximated as the anodic rate constant at eta = 0
 # =========================================================================================
-
-
-def plot_states(
-    axis: Axes,
-    grid: np.ndarray,
-    energies: np.ndarray,
-    wavefunctions: np.ndarray,
-    shift: float,
-    color: str,
-) -> None:
-    """Draw the lowest vibrational states as wave functions on their levels."""
-    for i, (energy, wavefunction) in enumerate(
-        zip(energies[:STATES_TO_SHOW], wavefunctions[:STATES_TO_SHOW], strict=True)
-    ):
-        # flip the wave function so its largest amplitude points up
-        sign = 1 if np.abs(np.max(wavefunction)) > np.abs(np.min(wavefunction)) else -1
-        level = energy + shift
-        curve = level + WAVEFUNCTION_SCALE * sign * wavefunction
-        axis.plot(grid, curve, f"{color}-", lw=1, alpha=(1 - 0.12 * i))
-        axis.fill_between(grid, curve, level, color=color, alpha=0.4)
 
 
 def write_contribution_table(stream: TextIO, system: PCET, isotope: str) -> None:
@@ -217,51 +192,15 @@ for i, distance in enumerate(distances):
         if abs(electrode_energy) > 1e-9:
             continue
 
-        fig = plt.figure(figsize=(9, 4.5))
-        gs = fig.add_gridspec(ncols=2, wspace=0)
-        ax1, ax2 = gs.subplots(sharex=True, sharey=True)
-
-        # align the zero-point energy of the reactant and product states
-        zero_point_gap = system_h.product_energies[0] - system_h.reactant_energies[0]
-        reactant_shift = max(zero_point_gap, 0.0)
-        product_shift = max(-zero_point_gap, 0.0)
-
-        ax1.plot(
-            system_h.rp, reactant_potentials[i](system_h.rp) + reactant_shift, "b", lw=2
+        reactant_axes, product_axes = plot_proton_states(
+            system_h, n_states=STATES_TO_SHOW, autoscale=False
         )
-        plot_states(
-            ax1,
-            system_h.rp,
-            system_h.reactant_energies,
-            system_h.reactant_wavefunctions,
-            reactant_shift,
-            "b",
-        )
+        product_axes.set_xlim(-1.0, 1.0)
+        product_axes.set_ylim(0, 1.3)
+        product_axes.set_xticks(np.arange(-0.8, 1.2, 0.4))
 
-        ax2.plot(
-            system_h.rp, product_potentials[i](system_h.rp) + product_shift, "r", lw=2
-        )
-        plot_states(
-            ax2,
-            system_h.rp,
-            system_h.product_energies,
-            system_h.product_wavefunctions,
-            product_shift,
-            "r",
-        )
-
-        ax2.set_xlim(-1.0, 1.0)
-        ax2.set_ylim(0, 1.3)
-        ax1.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
-        ax1.set_ylabel(r"$E$ / eV", fontsize=16)
-        ax2.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
-        ax2.set_xticks(np.arange(-0.8, 1.2, 0.4))
-        ax1.tick_params(labelsize=14)
-        ax2.tick_params(labelsize=14)
-
-        plt.tight_layout()
-        plt.savefig(f"Proton_states_H_R{distance:.2f}.png", dpi=300)
-        plt.clf()
+        reactant_axes.get_figure().savefig(f"Proton_states_H_R{distance:.2f}.png")
+        plt.close("all")
 
         with open(f"rate_constant_contribution_R{distance:.2f}A.log", "w") as log:
             log.write(f"\nR = {distance:.2f}A, epsilon = 0, eta = 0\n")

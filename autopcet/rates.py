@@ -9,6 +9,7 @@ from .constants import (
     BOLTZMANN,
     HARTREE_TO_EV,
     HBAR,
+    MASS_DEUTERON,
     MASS_PROTON,
     ROOM_TEMPERATURE,
 )
@@ -221,6 +222,72 @@ class PCET:
             * self.overlaps**2
             * marcus_factors
         )
+
+
+def temperature_sweep(
+    system: PCET,
+    temperatures: FloatArray,
+    mass: float = MASS_PROTON,
+) -> FloatArray:
+    """Total rate constant at each temperature, in inverse seconds.
+
+    The proton states depend on the mass alone, not on the temperature, so the
+    sweep solves for them once and reuses them at every point. ``system`` is
+    left holding the results of the last temperature.
+    """
+    rates = np.empty(len(temperatures), dtype=np.float64)
+    for index, temperature in enumerate(temperatures):
+        rates[index] = system.calculate(
+            mass, temperature=float(temperature), reuse_states=True
+        )
+    return rates
+
+
+def driving_force_sweep(
+    system: PCET,
+    reaction_free_energies: FloatArray,
+    mass: float = MASS_PROTON,
+    temperature: float = ROOM_TEMPERATURE,
+) -> FloatArray:
+    """Total rate constant at each reaction free energy, in inverse seconds.
+
+    Sweeping the driving force traces out the Marcus curve, including the
+    inverted region beyond ``-reorganization_energy`` where making the reaction
+    more exergonic slows it down again.
+
+    The proton states do not depend on the driving force either, so they too
+    are solved once. ``system.reaction_free_energy`` is put back afterwards,
+    but the per-state results are left at the last point of the sweep.
+    """
+    original = system.reaction_free_energy
+    rates = np.empty(len(reaction_free_energies), dtype=np.float64)
+
+    try:
+        for index, free_energy in enumerate(reaction_free_energies):
+            system.reaction_free_energy = float(free_energy)
+            rates[index] = system.calculate(
+                mass, temperature=temperature, reuse_states=True
+            )
+    finally:
+        system.reaction_free_energy = original
+
+    return rates
+
+
+def kinetic_isotope_effect(
+    system: PCET,
+    temperature: float = ROOM_TEMPERATURE,
+    light_mass: float = MASS_PROTON,
+    heavy_mass: float = MASS_DEUTERON,
+) -> float:
+    """The H/D kinetic isotope effect ``k_H / k_D`` at one temperature.
+
+    Both rate constants are computed from the same potentials, so ``system`` is
+    left solved for ``heavy_mass``.
+    """
+    light = system.calculate(light_mass, temperature=temperature)
+    heavy = system.calculate(heavy_mass, temperature=temperature)
+    return light / heavy
 
 
 def donor_acceptor_distribution(

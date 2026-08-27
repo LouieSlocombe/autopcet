@@ -30,6 +30,7 @@ start of a relaxation. It says nothing about this calculation.
 
 import argparse
 
+import matplotlib.pyplot as plt
 import numpy as np
 from ase.calculators.orca import ORCA, OrcaProfile
 from ase.io import read
@@ -50,6 +51,14 @@ from autopcet import (
     run_da_scan,
     run_proton_scan,
     run_vibrations,
+)
+from autopcet.plotting import (
+    PRODUCT_COLOR,
+    plot_distance_scan,
+    plot_isotope_states,
+    plot_proton_scan,
+    plot_state_pair_map,
+    use_style,
 )
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -179,3 +188,29 @@ rate_d = system.calculate(MASS_DEUTERON, ROOM_TEMPERATURE)
 print(f"k(H) = {rate_h:.3e} s^-1")
 print(f"k(D) = {rate_d:.3e} s^-1")
 print(f"KIE = {rate_h / rate_d:.2f}")
+
+# 7. figures of everything the scans and the rate constant were built from
+use_style()
+
+scan_axes = plot_distance_scan(reactant_scan)
+scan_axes.get_figure().savefig("Distance_scan.png")
+
+# the two diabatic proton potentials, as PCET was handed them
+proton_axes = plot_proton_scan(reactant_potential, label="reactant")
+plot_proton_scan(product_potential, proton_axes, label="product", color=PRODUCT_COLOR)
+proton_axes.get_figure().savefig("Proton_potentials.png")
+
+# the proton and deuteron states behind the KIE printed above
+isotope_axes = plot_isotope_states(system)
+isotope_axes[0].get_figure().savefig("Proton_states_H_D.png")
+
+# which pairs of vibronic states carry the rate constant
+system.calculate(MASS_PROTON, ROOM_TEMPERATURE)
+pair_axes = plot_state_pair_map(system, "contribution", n_states=6)
+pair_axes.get_figure().savefig("State_pair_contributions.png")
+
+plt.close("all")
+print(
+    "Wrote Distance_scan.png, Proton_potentials.png, Proton_states_H_D.png, "
+    "and State_pair_contributions.png"
+)

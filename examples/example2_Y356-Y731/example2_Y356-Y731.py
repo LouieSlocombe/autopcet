@@ -2,17 +2,23 @@
 proton donor-acceptor distance R, thermally averaged over an umbrella-sampled
 P(R) distribution."""
 
-import colorsys
 from typing import TextIO
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.axes import Axes
 from scipy.integrate import simpson
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
-from autopcet import KCAL_TO_EV, MASS_PROTON, PCET, fit_bspline
+from autopcet import EV_TO_KCAL, KCAL_TO_EV, MASS_PROTON, PCET, fit_bspline
+from autopcet.plotting import (
+    distance_colors,
+    plot_potential_family,
+    plot_proton_states,
+    plot_thermal_average,
+    prepare_axes_grid,
+    use_style,
+)
 
 # =========================================================================================
 # Define the thermodynamic parameters, taken from
@@ -31,17 +37,12 @@ TEMPERATURE = 298
 N_STATES = 7  # how many states to include in the rate constant calculation
 STATES_TO_SHOW = 4  # how many states to plot/print
 
-# wave functions and energies share an axis, so scale the wave functions down
-WAVEFUNCTION_SCALE = 0.06
-
 # =========================================================================================
 # Read data from files
 # =========================================================================================
 
 # rainbow colors for plotting the proton potentials
-colors = [
-    colorsys.hls_to_rgb(hue, 0.5, 0.85) for hue in np.linspace(0.0, 0.8, len(distances))
-]
+colors = distance_colors(len(distances))
 
 reactant_potentials = []
 product_potentials = []
@@ -66,50 +67,32 @@ for i, distance in enumerate(distances):
     reactant_potentials.append(fit_bspline(rp_data, reactant_energies))
     product_potentials.append(fit_bspline(rp_data, product_energies))
 
-# plot the proton potentials
-fig = plt.figure(figsize=(8, 4))
-gs = fig.add_gridspec(ncols=2, wspace=0)
-ax1, ax2 = gs.subplots(sharex=True, sharey=True)
+# plot the proton potentials, one curve per donor-acceptor distance
+use_style()
 
-for i in range(len(distances)):
-    ax1.plot(rp, reactant_potentials[i](rp) / KCAL_TO_EV, "-", lw=2, color=colors[i])
-    ax2.plot(rp, product_potentials[i](rp) / KCAL_TO_EV, "-", lw=2, color=colors[i])
+ax1, ax2 = prepare_axes_grid(
+    None, "Plotting the potentials", 1, 2, sharex=True, sharey=True, figsize=(8, 4)
+)
+for axis, potentials in ((ax1, reactant_potentials), (ax2, product_potentials)):
+    plot_potential_family(
+        rp,
+        potentials,
+        axis,
+        colors=colors,
+        energy_scale=EV_TO_KCAL,
+        ylabel=r"$E$ / (kcal/mol)",
+    )
 
+ax2.set_ylabel("")
 ax2.set_xlim(-1.2, 1.2)
 ax2.set_ylim(0, 100)
-ax1.set_xlabel(r"$r_{\rm p} (\rm\AA)$", fontsize=16)
-ax2.set_xlabel(r"$r_{\rm p} (\rm\AA)$", fontsize=16)
-ax1.set_ylabel(r"$E$ / (kcal/mol)", fontsize=16)
 ax2.set_xticks(np.arange(-1.0, 1.5, 0.5))
-ax1.tick_params(labelsize=14)
-ax2.tick_params(labelsize=14)
-plt.tight_layout()
-plt.savefig("Proton_potentials.png", dpi=300)
-plt.clf()
+ax1.get_figure().savefig("Proton_potentials.png")
+plt.close("all")
 
 # =========================================================================================
 # Calculate the PCET rate constant between Y356 and Y731
 # =========================================================================================
-
-
-def plot_states(
-    axis: Axes,
-    grid: np.ndarray,
-    energies: np.ndarray,
-    wavefunctions: np.ndarray,
-    shift: float,
-    color: str,
-) -> None:
-    """Draw the lowest vibrational states as wave functions on their levels."""
-    for i, (energy, wavefunction) in enumerate(
-        zip(energies[:STATES_TO_SHOW], wavefunctions[:STATES_TO_SHOW], strict=True)
-    ):
-        # flip the wave function so its largest amplitude points up
-        sign = 1 if np.abs(np.max(wavefunction)) > np.abs(np.min(wavefunction)) else -1
-        level = energy + shift
-        curve = level + WAVEFUNCTION_SCALE * sign * wavefunction
-        axis.plot(grid, curve, f"{color}-", lw=1, alpha=(1 - 0.12 * i))
-        axis.fill_between(grid, curve, level, color=color, alpha=0.4)
 
 
 def write_contribution_table(stream: TextIO, system: PCET) -> None:
@@ -152,47 +135,15 @@ for i, distance in enumerate(distances):
     rates_h[i] = system.calculate(mass=MASS_PROTON, temperature=TEMPERATURE)
 
     # plot the wave functions and print the state contributions for each R
-    fig = plt.figure(figsize=(9, 4.5))
-    gs = fig.add_gridspec(ncols=2, wspace=0)
-    ax1, ax2 = gs.subplots(sharex=True, sharey=True)
-
-    # align the zero-point energy of the reactant and product states in this plot
-    zero_point_gap = system.product_energies[0] - system.reactant_energies[0]
-    reactant_shift = max(zero_point_gap, 0.0)
-    product_shift = max(-zero_point_gap, 0.0)
-
-    ax1.plot(system.rp, reactant_potentials[i](system.rp) + reactant_shift, "b", lw=2)
-    plot_states(
-        ax1,
-        system.rp,
-        system.reactant_energies,
-        system.reactant_wavefunctions,
-        reactant_shift,
-        "b",
+    reactant_axes, product_axes = plot_proton_states(
+        system, n_states=STATES_TO_SHOW, autoscale=False
     )
+    product_axes.set_xlim(-1.2, 1.2)
+    product_axes.set_ylim(0, 2.5)
+    product_axes.set_xticks(np.arange(-1.0, 1.5, 0.5))
 
-    ax2.plot(system.rp, product_potentials[i](system.rp) + product_shift, "r", lw=2)
-    plot_states(
-        ax2,
-        system.rp,
-        system.product_energies,
-        system.product_wavefunctions,
-        product_shift,
-        "r",
-    )
-
-    ax2.set_xlim(-1.2, 1.2)
-    ax2.set_ylim(0, 2.5)
-    ax1.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
-    ax1.set_ylabel(r"$E$ / eV", fontsize=16)
-    ax2.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
-    ax2.set_xticks(np.arange(-1.0, 1.5, 0.5))
-    ax1.tick_params(labelsize=14)
-    ax2.tick_params(labelsize=14)
-
-    plt.tight_layout()
-    plt.savefig(f"Proton_states_H_R{distance:.2f}.png", dpi=300)
-    plt.clf()
+    reactant_axes.get_figure().savefig(f"Proton_states_H_R{distance:.2f}.png")
+    plt.close("all")
 
     with open(f"rate_constant_contribution_R{distance:.2f}A.log", "w") as log:
         log.write(f"\nR = {distance:.2f}A\n")
@@ -207,9 +158,6 @@ with open("kPCET_data.log", "w") as log:
 # =========================================================================================
 # Thermally average the PCET rate constant over R
 # =========================================================================================
-
-RATE_COLOR = "#ff7700"
-DISTRIBUTION_COLOR = (0.1, 0.6, 0.2)
 
 # the integration should run from 0 to infinity, but in practice we integrate
 # over the interval where the integrand has reached zero at both limits
@@ -255,46 +203,14 @@ print(f"k_H_tot = {average_rate_h:.4e} s^-1")
 # plot k(R), P(R), k(R)*P(R) for H
 # =========================================================================================
 
-plt.figure(figsize=(4.8, 4.5))
+ax = plot_thermal_average(fine_grid, rates_h_fine, distribution)
 
-plt.title("H", fontsize=20)
-plt.plot(
-    fine_grid,
-    rates_h_fine / np.max(rates_h_fine),
-    "-",
-    lw=2,
-    color=RATE_COLOR,
-    label=r"$k(R)$",
-)
-plt.plot(
-    fine_grid,
-    distribution / np.max(distribution),
-    "-",
-    lw=2,
-    color=DISTRIBUTION_COLOR,
-    label="$P(R)$",
-)
-plt.plot(
-    fine_grid,
-    weighted_rate / np.max(weighted_rate),
-    "-",
-    lw=2,
-    color="k",
-    label=r"$P(R)k(R)$",
-)
+ax.set_title("H")
+ax.set_xlim(2.10, 3.7)
+ax.set_ylim(0, 1.2)
+ax.set_xticks(np.arange(2.25, 3.75, 0.25))
+ax.set_ylabel("")
+ax.set_yticks([])
 
-plt.axvline(
-    x=equilibrium_distance, linewidth=1.5, color="darkgray", linestyle=(0, (3, 3))
-)
-plt.axvline(x=dominant_distance[0], linewidth=1.5, color="k", linestyle=(0, (3, 3)))
-
-plt.legend(fontsize=16, frameon=False, loc=1)
-plt.xlim(2.10, 3.7)
-plt.ylim(0, 1.2)
-plt.xlabel(r"$R$ / $\rm \AA$", fontsize=18)
-plt.xticks(np.arange(2.25, 3.75, 0.25), fontsize=16)
-plt.yticks([])
-
-plt.tight_layout()
-plt.savefig("kR-PR.png", dpi=300)
-plt.clf()
+ax.get_figure().savefig("kR-PR.png")
+plt.close("all")

@@ -22,6 +22,7 @@ from autopcet import (
     fit_poly6,
     make_edl_model,
 )
+from autopcet.plotting import distance_colors, plot_edl_profile, use_style
 
 # =========================================================================================
 # Define the thermodynamic parameters, taken from
@@ -109,35 +110,33 @@ def make_potential_drop(potential_vs_she: float):
     )
 
 
+use_style()
+
 survey_potentials = np.arange(-1.0, 0.0, 0.2)
-colors = ["r", "darkorange", "g", "b", "purple"]
+survey_grid = np.arange(0, 10, 0.1)
+colors = distance_colors(len(survey_potentials))
 
-fig = plt.figure(figsize=(6, 3.5))
-
-for i, potential_vs_she in enumerate(survey_potentials):
-    potential_drop = make_potential_drop(potential_vs_she)
-    survey_grid = np.arange(0, 10, 0.1)
-    plt.plot(
+# the Helmholtz planes are the same for every applied potential, so only the
+# last call needs to mark them
+edl_axes = None
+for potential_vs_she, color in zip(survey_potentials, colors, strict=True):
+    last = potential_vs_she == survey_potentials[-1]
+    edl_axes = plot_edl_profile(
+        make_potential_drop(potential_vs_she),
         survey_grid,
-        potential_drop(survey_grid),
-        "-",
+        edl_axes,
+        d_ihl=D_IHL if last else None,
+        d_ohl=D_OHL if last else None,
         label=f"$E = {potential_vs_she:.1f}$V",
-        lw=1.5,
-        color=colors[i],
+        color=color,
     )
 
-plt.axvline(x=D_IHL, linewidth=1.5, color="k", linestyle=(0, (3, 3)))
-plt.axvline(x=D_IHL + D_OHL, linewidth=1.5, color="k", linestyle=(0, (3, 3)))
+assert edl_axes is not None
+edl_axes.set_xlim(0, 10)
+edl_axes.legend(loc=4, frameon=True, framealpha=1)
 
-plt.legend(loc=4, frameon=True, framealpha=1, fontsize=14)
-plt.xlim(0, 10)
-plt.xlabel(r"$R\ /\ \rm\AA$", fontsize=16)
-plt.ylabel(r"$\phi(R,E)$ / V", fontsize=16)
-plt.xticks(fontsize=14)
-plt.yticks(fontsize=14)
-plt.tight_layout()
-
-plt.savefig("EDL_model.png", dpi=300)
+edl_axes.get_figure().savefig("EDL_model.png")
+plt.close("all")
 
 
 # Buckingham potentials using coefficients determined from fitting DFT data.

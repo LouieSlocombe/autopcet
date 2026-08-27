@@ -3,6 +3,7 @@ averaged over the proton donor-acceptor distance."""
 
 from typing import TextIO
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.integrate import simpson
@@ -18,6 +19,7 @@ from autopcet import (
     fit_poly6,
     fit_poly8,
 )
+from autopcet.plotting import plot_state_pair_map, plot_thermal_average, use_style
 
 # =========================================================================================
 # Define the thermodynamic parameters
@@ -38,6 +40,8 @@ STATES_TO_SHOW = 7  # how many states to print
 
 FORCE_CONSTANT = 0.0443  # effective proton donor-acceptor force constant, a.u.
 EQUILIBRIUM_DISTANCE = 2.58  # equilibrium proton donor-acceptor distance
+
+use_style()
 
 # =========================================================================================
 # Read data from files
@@ -131,9 +135,14 @@ for i, distance in enumerate(distances):
     rates_h[i] = system_h.calculate(mass=MASS_PROTON, temperature=TEMPERATURE)
     rates_d[i] = system_d.calculate(mass=MASS_DEUTERON, temperature=TEMPERATURE)
 
-    # Plotting of the wave functions is omitted in this example. They are the
-    # same as in the electrochemical case because the same proton potentials are
-    # used. Only the contributions of the vibronic states are printed.
+    # The wave functions are the same as in the electrochemical case, since the
+    # same proton potentials are used, so they are not drawn again here. What
+    # does differ is which pairs of vibronic states carry the rate, so those go
+    # into a map beside the table.
+    pair_axes = plot_state_pair_map(system_h, "contribution", n_states=STATES_TO_SHOW)
+    pair_axes.get_figure().savefig(f"State_pairs_H_R{distance:.2f}.png")
+    plt.close("all")
+
     with open(f"rate_constant_contribution_R{distance:.2f}A.log", "w") as log:
         log.write(f"\nR = {distance:.2f}A, epsilon = 0, eta = 0\n")
         write_contribution_table(log, system_h, "H")
@@ -189,3 +198,16 @@ print(f"Dominant R for D = {dominant_distance_d[0]:.2f}A")
 print(f"k_H_tot = {average_rate_h:.4e} s^-1")
 print(f"k_D_tot = {average_rate_d:.4e} s^-1")
 print(f"KIE = {average_rate_h / average_rate_d:.2f}")
+
+# =========================================================================================
+# Plot k(R), P(R), and k(R)P(R) for both isotopes
+# =========================================================================================
+
+for isotope, rates_fine in (("H", rates_h_fine), ("D", rates_d_fine)):
+    axes = plot_thermal_average(fine_grid, rates_fine, distribution)
+    axes.set_title(isotope)
+    axes.set_xlim(2.1, 3.0)
+    axes.set_ylim(0, 1.2)
+    axes.get_figure().savefig(f"kR-PR_{isotope}.png")
+
+plt.close("all")

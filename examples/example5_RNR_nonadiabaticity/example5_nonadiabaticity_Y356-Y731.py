@@ -11,9 +11,11 @@ import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from scipy.interpolate import CubicSpline
 
 from autopcet import KCAL_TO_EV, MASS_PROTON, KappaCoupling, fit_bspline
+from autopcet.plotting import plot_crossing, plot_diabats_and_adiabats, use_style
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
@@ -70,61 +72,28 @@ for label, coupling_value in (
 # Plot the proton potentials
 # ===========================================================
 
-# wave functions and energies share an axis, so scale the wave functions down
-WAVEFUNCTION_SCALE = 0.06
+# this example draws its labels a size up from the house default
+use_style(**{"axes.labelsize": 18, "xtick.labelsize": 16, "ytick.labelsize": 16})
 
 
-def plot_ground_state(energy: float, wavefunction: np.ndarray, color: str) -> None:
-    """Draw the ground vibrational wave function sitting on its energy level."""
-    # flip the wave function so its largest amplitude points up
-    sign = 1 if np.abs(np.max(wavefunction)) > np.abs(np.min(wavefunction)) else -1
-    curve = energy + WAVEFUNCTION_SCALE * sign * wavefunction
-    plt.plot(rp, curve, f"{color}-", lw=1, alpha=1)
-    plt.fill_between(rp, curve, energy, color=color, alpha=0.4)
+def style_axes(axis: Axes, bottom: float) -> None:
+    """The shared limits and ticks both figures here are drawn on."""
+    axis.set_xlim(-0.75, 0.75)
+    axis.set_ylim(bottom, 2.0)
+    axis.set_xticks(np.arange(-0.6, 0.8, 0.2))
 
 
-def style_axes(bottom: float) -> None:
-    """Apply the shared axis limits, labels, and tick sizes."""
-    plt.xlim(-0.75, 0.75)
-    plt.ylim(bottom, 2.0)
-    plt.xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=18)
-    plt.ylabel(r"$E$ / eV", fontsize=18)
-    plt.xticks(np.arange(-0.6, 0.8, 0.2), fontsize=16)
-    plt.yticks(fontsize=16)
-
-
-plt.plot(rp, system.shifted_reactant_potential, "b", lw=2)
-plt.plot(rp, system.shifted_product_potential, "r", lw=2)
-
-# mark the crossing point and the slopes of the two diabats through it
-plt.plot(system.crossing_rp, system.crossing_energy, "o", ms=5, mew=2, mfc="k", mec="k")
-
-tangent_rp = np.linspace(system.crossing_rp - 0.1, system.crossing_rp + 0.1, 100)
-for slope in (system.reactant_slope, system.product_slope):
-    tangent = slope * (tangent_rp - system.crossing_rp) + system.crossing_energy
-    plt.plot(tangent_rp, tangent, "k--", lw=1.5)
-
-plot_ground_state(
-    system.shifted_reactant_energies[0], system.reactant_wavefunctions[0], "b"
-)
-plot_ground_state(
-    system.shifted_product_energies[0], system.product_wavefunctions[0], "r"
-)
-
-style_axes(bottom=0.0)
-plt.tight_layout()
-plt.savefig(f"Proton_pot_w_slope_Y356_Y731_{config}.png", dpi=300)
-plt.clf()
+# the diabats, where they cross, the slopes through it, and the ground states
+crossing_axes = plot_crossing(system)
+style_axes(crossing_axes, bottom=0.0)
+crossing_axes.get_figure().savefig(f"Proton_pot_w_slope_Y356_Y731_{config}.png")
 
 # ===========================================================
 # Plot adiabatic proton potentials
 # ===========================================================
 
-plt.plot(rp, system.shifted_reactant_potential, "b", lw=2)
-plt.plot(rp, system.shifted_product_potential, "r", lw=2)
-plt.plot(rp, system.ground_adiabat, "k--", lw=1.5)
-plt.plot(rp, system.excited_adiabat, "k--", lw=1.5)
+adiabat_axes = plot_diabats_and_adiabats(system, annotate_splitting=False)
+style_axes(adiabat_axes, bottom=-0.2)
+adiabat_axes.get_figure().savefig(f"Proton_pot_adiabatic_Y356_Y731_{config}.png")
 
-style_axes(bottom=-0.2)
-plt.tight_layout()
-plt.savefig(f"Proton_pot_adiabatic_Y356_Y731_{config}.png", dpi=300)
+plt.close("all")

@@ -3,9 +3,9 @@ double-well proton potential."""
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.axes import Axes
 
 from autopcet import MASS_DEUTERON, MASS_PROTON, PCET, fit_poly8
+from autopcet.plotting import plot_proton_states, plot_state_pair_map, use_style
 
 # temperature, electronic coupling, reaction free energy, and reorganization
 # energy; energies in eV
@@ -107,63 +107,21 @@ system.calculate(MASS_PROTON, temperature=TEMPERATURE)
 
 STATES_TO_PLOT = 6
 
-# wave functions and energies share an axis, so scale the wave functions down
-WAVEFUNCTION_SCALE = 0.06
+use_style()
 
-rp = system.rp
+# the reactant states on the left panel and the product states on the right,
+# with the two potentials shifted so their zero-point levels line up
+reactant_axes, product_axes = plot_proton_states(system, n_states=STATES_TO_PLOT)
+reactant_axes.set_xlim(-0.8, 0.8)
+product_axes.set_xticks(np.arange(-0.6, 0.8, 0.2))
+reactant_axes.get_figure().savefig("Proton_states.png")
 
-# align the zero-point energy of the reactant and product states in this plot
-zero_point_gap = system.product_energies[0] - system.reactant_energies[0]
-reactant_shift, product_shift = max(zero_point_gap, 0.0), max(-zero_point_gap, 0.0)
+# which pairs of vibronic states carry the rate constant, as a map of the same
+# numbers the table below prints
+pair_axes = plot_state_pair_map(system, "contribution", n_states=STATES_TO_PLOT)
+pair_axes.get_figure().savefig("State_pair_contributions.png")
 
-
-def plot_states(
-    axis: Axes,
-    energies: np.ndarray,
-    wavefunctions: np.ndarray,
-    shift: float,
-    color: str,
-) -> None:
-    """Draw the lowest vibrational states as wave functions on their levels."""
-    for i, (energy, wavefunction) in enumerate(
-        zip(energies[:STATES_TO_PLOT], wavefunctions[:STATES_TO_PLOT], strict=True)
-    ):
-        # flip the wave function so its largest amplitude points up
-        sign = 1 if np.abs(np.max(wavefunction)) > np.abs(np.min(wavefunction)) else -1
-        level = energy + shift
-        curve = level + WAVEFUNCTION_SCALE * sign * wavefunction
-        axis.plot(rp, curve, f"{color}-", lw=1, alpha=(1 - 0.12 * i))
-        axis.fill_between(rp, curve, level, color=color, alpha=0.4)
-
-
-fig = plt.figure(figsize=(9, 4.5))
-gs = fig.add_gridspec(ncols=2, wspace=0)
-ax1, ax2 = gs.subplots(sharex=True, sharey=True)
-
-for axis in (ax1, ax2):
-    axis.plot(rp, reactant_potential(rp) + reactant_shift, "b", lw=2)
-    axis.plot(rp, product_potential(rp) + product_shift, "r", lw=2)
-    axis.set_xlabel(r"$r_{\rm p}\ /\ \rm\AA$", fontsize=16)
-    axis.tick_params(labelsize=14)
-
-plot_states(
-    ax1, system.reactant_energies, system.reactant_wavefunctions, reactant_shift, "b"
-)
-plot_states(
-    ax2, system.product_energies, system.product_wavefunctions, product_shift, "r"
-)
-
-ax1.set_xlim(-0.8, 0.8)
-ax1.set_ylim(0, 1.3)
-ax1.set_ylabel(r"$E$ / eV", fontsize=16)
-
-ax2.set_xlim(-0.65, 0.75)
-ax2.set_ylim(0, 1.3)
-ax2.set_xticks(np.arange(-0.6, 0.8, 0.2))
-
-plt.tight_layout()
-plt.savefig("Proton_states.png", dpi=300)
-plt.clf()
+plt.close("all")
 
 # ===========================================================
 # Analyze the contribution of each pair of vibronic states
