@@ -153,6 +153,9 @@ def average_structures(first: FloatArray, second: FloatArray) -> FloatArray:
     return (first + second) / 2
 
 
+PROTON_SCAN_ENDPOINT_SEPARATION = 1e-6
+"""Endpoints closer than this in angstrom leave the transfer axis undefined."""
+
 PROTON_SCAN_MINIMUM_HALF_WIDTH = 0.5
 """Smallest half-width in angstrom a proton scan spans."""
 
@@ -175,6 +178,9 @@ def proton_scan_grid(
     :data:`PROTON_SCAN_SPAN_FACTOR` times the distance between the endpoints,
     and never less than twice :data:`PROTON_SCAN_MINIMUM_HALF_WIDTH`.
 
+    Raises ``ValueError`` if the two endpoints coincide, which would otherwise
+    divide by zero and fill every grid point with ``nan``.
+
     Returns ``(offsets, geometries)``: the signed displacement of each grid
     point from the midpoint of the two endpoint positions, shape ``(points,)``,
     and the geometry at each point, shape ``(points, n_atoms, 3)``. Every atom
@@ -182,6 +188,15 @@ def proton_scan_grid(
     """
     proton_shift = product_positions[proton] - reactant_positions[proton]
     transfer_distance = float(np.linalg.norm(proton_shift))
+    if transfer_distance < PROTON_SCAN_ENDPOINT_SEPARATION:
+        raise ValueError(
+            "The reactant and product structures put the proton in the same "
+            f"place ({transfer_distance:.2e} A apart), so there is no transfer "
+            "axis to scan along. Relaxing both endpoints from the same geometry "
+            "does this whenever the two states share a minimum: optimize the "
+            "proton onto the donor for the reactant and onto the acceptor for "
+            "the product."
+        )
     axis = proton_shift / transfer_distance
     midpoint = 0.5 * (reactant_positions[proton] + product_positions[proton])
 

@@ -270,6 +270,13 @@ anything else implementing ASE's `Calculator` interface — through
 states are selected through the calculator: configure one per state, carrying
 that state's charge and multiplicity, and run each scan once per state.
 
+Everything that moves atoms — `run_da_scan`, `optimize_proton`,
+`run_vibrations` — needs forces, so a calculator that runs an external program
+has to be told to compute the gradient. For ORCA that means `EnGrad` in
+`orcasimpleinput`: without it ORCA writes no `.engrad` file, ASE reports no
+forces, and the scan stops on its first step. `run_proton_scan` and
+`read_scan_energies` need energies only.
+
 ```python
 from ase.calculators.orca import ORCA, OrcaProfile
 from ase.io import read
@@ -288,7 +295,9 @@ reactant_calc = ORCA(
     directory="reac",
     charge=0,
     mult=1,
-    orcasimpleinput="B3LYP def2-SVP TightSCF",
+    orcasimpleinput="B3LYP def2-SVP TightSCF EnGrad",
+    # ASE replaces its whole default block, so set the memory here too
+    orcablocks="%pal nprocs 8 end\n%maxcore 3000",
 )
 # ... and a product_calc with that state's charge and multiplicity
 
@@ -310,15 +319,27 @@ mode = effective_mode_from_vibrations(
 )
 ```
 
+Every grid point reuses the calculator's `directory`, so each job overwrites
+the last one's files. Give a scan its own per-point directory if you want to
+keep them, or to reuse a converged wavefunction as the next point's guess.
+
 `examples/example6_ORCA_ASE` walks the full pipeline. For jobs run elsewhere —
 on a cluster, say — keep writing inputs with `autopcet-scan-proton` and skip
 the manual energy table afterwards: `read_scan_energies(directory, state)`
 walks the numbered directories the helper created and reads the finished
 outputs in any format ASE recognizes, Gaussian logs and ORCA outputs included.
+Name each job's output after its input, so grid point `03` of a reactant scan
+holds `reactant_sp.out` (or `.log`, `.xyz`, `.traj`) beside its `reactant_sp.gjf`.
 
 > [!NOTE]
 > Point `OrcaProfile` at the full path of your ORCA binary. On desktop Linux a
 > bare `orca` on the PATH is usually the GNOME screen reader, not ORCA.
+
+> [!NOTE]
+> ASE warns `Geometry optimization did not converge!` for every ORCA gradient
+> single point, reading the gradient header as the start of a relaxation, and
+> prints a caution about reading `.engrad` files from optimizations. Both are
+> artefacts of ASE's ORCA reader and say nothing about your calculation.
 
 ## Development
 

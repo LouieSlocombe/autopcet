@@ -7,6 +7,7 @@ analytic in every quantity these tests check.
 """
 
 import sys
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -222,9 +223,17 @@ def test_effective_mode_drops_imaginary_modes() -> None:
     unstable = spring_vibrations(spring_hessian(5.0) + spring_hessian(-3.0, axis=1))
     assert np.any(unstable.get_frequencies().imag != 0)
 
-    assert effective_mode_from_vibrations(unstable, 0, 1) == pytest.approx(
-        effective_mode_from_vibrations(stable, 0, 1)
-    )
+    # dropping a real imaginary mode is a statement about the structure, so it
+    # has to be audible rather than silent
+    with pytest.warns(UserWarning, match="imaginary mode"):
+        # pytest.warns drops the project's filters, so restore the one for
+        # ASE's reshaping that pyproject.toml ignores
+        warnings.filterwarnings(
+            "ignore", "Setting the shape on a NumPy array", DeprecationWarning
+        )
+        projected = effective_mode_from_vibrations(unstable, 0, 1)
+
+    assert projected == pytest.approx(effective_mode_from_vibrations(stable, 0, 1))
 
 
 def test_effective_mode_needs_the_axis_atoms_in_the_hessian() -> None:
@@ -260,6 +269,79 @@ def test_effective_mode_agrees_with_finite_differences(tmp_path: Path) -> None:
     assert mode.reduced_mass == pytest.approx(
         float(structure.get_masses()[0]) / 2, rel=1e-3
     )
+
+
+def make_energy_only(energy: float = -1.0) -> Any:
+    """A calculator declaring forces it never delivers, as ORCA does by default.
+
+    ASE's ORCA template always lists ``forces`` among its implemented
+    properties, but only fills them in when an ``orca.engrad`` file exists --
+    which ORCA writes only when the input asks for a gradient. This reproduces
+    that shape without needing a quantum chemistry program.
+    """
+    from ase.calculators.calculator import BaseCalculator
+
+    class EnergyOnly(BaseCalculator):
+        def __init__(self) -> None:
+            super().__init__()  # type: ignore[no-untyped-call]
+            self.implemented_properties = ["energy", "free_energy", "forces"]
+
+        def calculate(self, atoms: Any, properties: Any, system_changes: Any) -> None:
+            self.results = {"energy": energy, "free_energy": energy}
+
+    return EnergyOnly()
+
+
+@pytest.mark.parametrize("scan", ["da", "proton", "vibrations"])
+def test_a_calculator_without_forces_is_reported_up_front(
+    scan: str, tmp_path: Path
+) -> None:
+    """The gradient-less ORCA default must not surface as a bare ASE error."""
+    pytest.importorskip("ase")
+
+    calculator = make_energy_only()
+    structure = make_oho(0.9)
+
+    with pytest.raises(RuntimeError, match="EnGrad"):
+        if scan == "da":
+            run_da_scan(structure, 0, 2, calculator, [2.4])
+        elif scan == "proton":
+            optimize_proton(structure, 1, calculator)
+        else:
+            run_vibrations(structure, calculator, directory=tmp_path / "vib")
+
+
+def test_a_non_finite_energy_is_refused() -> None:
+    """ASE returns nan for a badly converged job; it must not reach the rate."""
+    pytest.importorskip("ase")
+
+    calculator = make_energy_only(float("nan"))
+    with pytest.raises(RuntimeError, match="non-finite energy"):
+        run_proton_scan(make_oho(0.9), make_oho(1.5), 1, calculator, points=3)
+
+
+def test_run_vibrations_refuses_another_structures_cache(tmp_path: Path) -> None:
+    """ASE would reuse the cache for any geometry, silently mixing the two."""
+    pytest.importorskip("ase")
+
+    directory = tmp_path / "vib"
+    run_vibrations(make_oho(0.9), make_morse(), directory=directory)
+
+    with pytest.raises(RuntimeError, match="different structure"):
+        run_vibrations(make_oho(1.1), make_morse(), directory=directory)
+
+    # the same structure still resumes, which is what the cache is for
+    run_vibrations(make_oho(0.9), make_morse(), directory=directory)
+
+
+def test_run_proton_scan_needs_matching_elements() -> None:
+    """Same atom count but a different order would scan a scrambled molecule."""
+    pytest.importorskip("ase")
+    from ase import Atoms
+
+    product = Atoms("HOO", positions=[[0, 0, 0], [1.5, 0, 0], [2.4, 0, 0]])
+    with pytest.raises(ValueError, match="same elements"):
+        run_proton_scan(make_oho(0.9), product, 1, SENTINEL, points=3)
 
 
 def test_read_scan_energies_collects_numbered_directories(tmp_path: Path) -> None:

@@ -15,10 +15,17 @@ order in both:
         -r reac.xyz -p prod.xyz -D 0 -A 2 -H 1
 
 Point ``--orca`` at the full path of the ORCA binary: on desktop Linux a bare
-``orca`` on the PATH is usually the GNOME screen reader, not ORCA. The
-reaction free energy and reorganization energy are inputs of the golden-rule
-rate expression, not something this script computes; supply your system's
-values through ``--delta-g`` and ``--reorganization``.
+``orca`` on the PATH is usually the GNOME screen reader, not ORCA. ``--method``
+has to keep ``EnGrad``: the distance scan, the proton optimizations, and the
+frequencies all need forces, and ASE reads those from the ``.engrad`` file ORCA
+writes only when the input asks for a gradient. The reaction free energy and
+reorganization energy are inputs of the golden-rule rate expression, not
+something this script computes; supply your system's values through
+``--delta-g`` and ``--reorganization``.
+
+ASE prints a spurious ``Geometry optimization did not converge!`` warning for
+every ORCA gradient single point, because it reads the gradient header as the
+start of a relaxation. It says nothing about this calculation.
 """
 
 import argparse
@@ -60,8 +67,9 @@ parser.add_argument("--start", type=float, default=2.4, help="shortest R in angs
 parser.add_argument("--stop", type=float, default=2.8, help="longest R in angstrom")
 parser.add_argument("--points", type=int, default=9, help="distances to scan")
 parser.add_argument("--scan-points", type=int, default=20, help="proton grid points")
-parser.add_argument("--method", default="B3LYP def2-SVP TightSCF")
+parser.add_argument("--method", default="B3LYP def2-SVP TightSCF EnGrad")
 parser.add_argument("--nprocs", type=int, default=1)
+parser.add_argument("--maxcore", type=int, default=3000, help="MB per core")
 parser.add_argument("--delta-g", type=float, default=0.0, help="in eV")
 parser.add_argument("--reorganization", type=float, default=1.0, help="in eV")
 args = parser.parse_args()
@@ -69,7 +77,9 @@ args = parser.parse_args()
 # one calculator per diabatic state: the state is selected by its charge and
 # multiplicity, exactly as --state/--charge/--multiplicity do for the helpers
 profile = OrcaProfile(command=args.orca)
-blocks = f"%pal nprocs {args.nprocs} end"
+# ASE replaces its whole default block, so the memory ORCA may use per core
+# has to be set here too or it falls back to a value too small for real jobs
+blocks = f"%pal nprocs {args.nprocs} end\n%maxcore {args.maxcore}"
 reactant_calc = ORCA(
     profile=profile,
     directory="reac",
@@ -138,7 +148,11 @@ product_potential = run_proton_scan(
 )
 
 # 5. effective donor-acceptor mode from finite difference vibrations at the
-#    reactant minimum (what autopcet-keff reads from a Gaussian HPmodes log)
+#    reactant minimum (what autopcet-keff reads from a Gaussian HPmodes log).
+#    This geometry is the best point of a scan run with the donor-acceptor
+#    distance frozen, so it is only a stationary point along that axis to the
+#    resolution of the grid; effective_mode_from_vibrations warns if that
+#    leaves a genuinely imaginary mode for it to discard.
 mode = effective_mode_from_vibrations(
     run_vibrations(reactant_structure, reactant_calc, directory="vib"),
     args.donor,

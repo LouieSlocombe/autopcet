@@ -187,3 +187,11 @@ def test_proton_scan_grid_spans_the_transfer_distance() -> None:
         assert frame == pytest.approx(reactant, abs=0.0)
         assert geometry[1] == pytest.approx(midpoint + offset * axis)
     assert geometries[2, 1] == pytest.approx(midpoint)
+
+
+def test_proton_scan_grid_rejects_coincident_endpoints() -> None:
+    """Endpoints in the same place have no axis, and used to yield all nan."""
+    reactant = np.array([[0.0, 0, 0], [1.2, 0, 0], [2.45, 0, 0]])
+
+    with pytest.raises(ValueError, match="same place"):
+        proton_scan_grid(reactant, reactant.copy(), 1, 5)

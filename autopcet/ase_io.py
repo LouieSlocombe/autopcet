@@ -13,10 +13,19 @@ one calculator per state, carrying that state's charge and multiplicity, and
 run each scan once per state. Energies are in eV and positions in angstrom
 throughout, as ASE returns them.
 
+Everything that optimizes or displaces atoms -- :func:`run_da_scan`,
+:func:`optimize_proton`, :func:`run_vibrations` -- needs forces from the
+calculator, so a calculator running an external program has to be configured
+to compute the gradient: ORCA needs ``EnGrad`` in its ``orcasimpleinput``, for
+one. :func:`run_proton_scan` and :func:`read_scan_energies` get by on energies
+alone.
+
 ASE itself is only imported when a function here needs it; install it with the
 ``ase`` extra.
 """
 
+import json
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import pi
@@ -25,7 +34,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
-from ._types import FloatArray
+from ._types import FloatArray, IntArray
 from .constants import (
     ANGSTROM_TO_CM,
     AU_TIME_TO_SECONDS,
@@ -48,6 +57,47 @@ ASE_HINT = (
 
 SCAN_OUTPUT_SUFFIXES = (".log", ".out", ".xyz", ".traj")
 """Suffixes :func:`read_scan_energies` looks for, in order of preference."""
+
+FORCES_HINT = (
+    "{need} needs forces, but the calculator did not return any ({error}). A "
+    "calculator that runs an external program has to be told to compute the "
+    "gradient: ORCA needs `EnGrad` in its `orcasimpleinput`, for instance. "
+    "Only run_proton_scan and read_scan_energies get by on energies alone."
+)
+
+
+def _require_forces(atoms: Atoms, need: str) -> None:
+    """Fail before a long scan when the calculator cannot return forces.
+
+    ASE caches a calculator's results against the state of the atoms it was
+    given, so the optimizer's own first force evaluation on the same object
+    reuses this one: the check costs a wasted job only when it fails.
+    """
+    try:
+        atoms.get_forces()
+    except NotImplementedError as error:
+        # ASE raises PropertyNotImplementedError, a NotImplementedError, both
+        # when the calculator declares no forces and when a run produced none
+        raise RuntimeError(FORCES_HINT.format(need=need, error=error)) from error
+
+
+def _finite_energy(atoms: Atoms, where: str) -> float:
+    """Read a potential energy, refusing the NaN of a failed calculation.
+
+    ASE hands back ``nan`` rather than raising when a calculation converged
+    badly enough to say so -- an ORCA output whose final energy is flagged
+    ``Wavefunction not fully converged``, for one. Left alone that ``nan``
+    travels all the way to the rate constant.
+    """
+    energy = float(atoms.get_potential_energy())
+    if not np.isfinite(energy):
+        directory = getattr(atoms.calc, "directory", None)
+        location = f" Its files are in {directory}." if directory else ""
+        raise RuntimeError(
+            f"The calculator returned a non-finite energy ({energy}) {where}, "
+            f"which usually means the calculation did not converge.{location}"
+        )
+    return energy
 
 
 @dataclass(frozen=True)
@@ -113,6 +163,11 @@ def run_proton_scan(
             "The reactant and product structures must hold the same atoms, "
             f"got {len(reactant)} and {len(product)}."
         )
+    if list(reactant.symbols) != list(product.symbols):
+        raise ValueError(
+            "The reactant and product structures must list the same elements "
+            "in the same order."
+        )
     if not 0 <= proton < len(reactant):
         raise ValueError(
             f"Proton index {proton} is out of range for {len(reactant)} atoms."
@@ -127,7 +182,7 @@ def run_proton_scan(
         frame = reactant.copy()
         frame.set_positions(geometry)
         frame.calc = calculator
-        energies[i] = frame.get_potential_energy()
+        energies[i] = _finite_energy(frame, f"at grid point {i} of {points}")
 
     return ProtonScan(offsets=offsets, energies=energies, positions=geometries)
 
@@ -152,8 +207,9 @@ def run_da_scan(
     anchor), 1 for the acceptor (the product's). Only the starting guess for
     the constrained optimization depends on it.
 
-    Raises ``RuntimeError`` if an optimization has not converged after
-    ``steps`` steps.
+    Raises ``RuntimeError`` if the calculator returns no forces, if an
+    optimization has not converged after ``steps`` steps, or if a converged
+    point comes back with a non-finite energy.
     """
     try:
         from ase.constraints import FixBondLength
@@ -171,6 +227,7 @@ def run_da_scan(
         scaled.set_distance(donor, acceptor, float(distance), fix=fix)
         scaled.set_constraint([*scaled.constraints, FixBondLength(donor, acceptor)])
         scaled.calc = calculator
+        _require_forces(scaled, "Scanning the donor-acceptor distance")
 
         if not BFGS(scaled, logfile=None).run(fmax=fmax, steps=steps):
             raise RuntimeError(
@@ -178,7 +235,7 @@ def run_da_scan(
                 f"converge to fmax = {fmax} within {steps} steps."
             )
 
-        energies[i] = scaled.get_potential_energy()
+        energies[i] = _finite_energy(scaled, f"at R = {distance:.2f} A")
         scaled.calc = None
         scaled.set_constraint(structure.constraints)
         structures.append(scaled)
@@ -201,8 +258,8 @@ def optimize_proton(
     from the averaged geometry, relax the proton onto the donor with the
     reactant state's calculator, and onto the acceptor with the product's.
     Returns the relaxed structure, leaving the input untouched; raises
-    ``RuntimeError`` if the optimization has not converged after ``steps``
-    steps.
+    ``RuntimeError`` if the calculator returns no forces, or if the
+    optimization has not converged after ``steps`` steps.
     """
     try:
         from ase.constraints import FixAtoms
@@ -218,6 +275,7 @@ def optimize_proton(
     relaxed: Atoms = structure.copy()
     relaxed.set_constraint(FixAtoms(mask=np.arange(len(relaxed)) != proton))
     relaxed.calc = calculator
+    _require_forces(relaxed, "Optimizing the proton")
 
     if not BFGS(relaxed, logfile=None).run(fmax=fmax, steps=steps):
         raise RuntimeError(
@@ -242,8 +300,11 @@ def run_vibrations(
     The result feeds :func:`effective_mode_from_vibrations`. ``indices``
     restricts the displaced atoms; the default displaces all of them, by
     ``delta`` angstrom each way. The displacement forces are cached in
-    ``directory``, so an interrupted calculation resumes where it stopped --
-    point a fresh structure at a fresh directory.
+    ``directory``, so an interrupted calculation resumes where it stopped.
+    ASE would reuse that cache for any structure, so what filled it is
+    recorded alongside; a fresh structure needs a fresh directory, and
+    reusing one raises ``RuntimeError`` rather than returning the previous
+    structure's Hessian.
     """
     try:
         from ase.vibrations import Vibrations
@@ -260,8 +321,44 @@ def run_vibrations(
         name=str(directory),
         delta=delta,
     )
+    _check_vibration_cache(Path(directory), work, vibrations.indices, delta)
+    _require_forces(work, "A finite difference frequency calculation")
     vibrations.run()
     return cast("VibrationsData", vibrations.get_vibrations())
+
+
+def _check_vibration_cache(
+    directory: Path,
+    structure: Atoms,
+    indices: IntArray,
+    delta: float,
+) -> None:
+    """Refuse a cache that was filled by a different calculation.
+
+    ASE keys its displacement cache on the name of the displacement alone --
+    ``0x+``, ``0y-`` and so on -- and never on the geometry, so a second run
+    in the same directory silently reuses the first structure's forces. Record
+    what filled the cache and compare on the way back in. The file sits beside
+    ASE's own entries without disturbing them: ASE globs for ``cache.*.json``.
+    """
+    fingerprint = {
+        "symbols": list(structure.symbols),
+        "positions": structure.get_positions().round(8).tolist(),
+        "indices": [int(index) for index in indices],
+        "delta": delta,
+    }
+    record = directory / "autopcet-structure.json"
+    if record.is_file():
+        if json.loads(record.read_text()) != fingerprint:
+            raise RuntimeError(
+                f"The displacement cache in {directory} was filled by a "
+                "different structure, and ASE would silently reuse its forces. "
+                "Delete the directory, or point this calculation at a fresh one."
+            )
+        return
+
+    directory.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps(fingerprint))
 
 
 def effective_mode_from_vibrations(
@@ -281,7 +378,11 @@ def effective_mode_from_vibrations(
     A finite difference Hessian keeps the six rigid-body modes, whose near-zero
     force constants the projection cannot divide by, so modes with imaginary
     frequencies or frequencies below ``frequency_floor`` (cm^-1) are dropped
-    first. Both axis atoms must have been displaced in the underlying
+    first. Dropping an imaginary mode above the floor warns: at a geometry that
+    is not a true minimum -- one optimized under a frozen donor-acceptor
+    distance, say -- the mode along that axis is the one most likely to come
+    back imaginary, and discarding it overestimates the effective force
+    constant. Both axis atoms must have been displaced in the underlying
     frequency calculation.
     """
     indices = vibrations.get_indices()
@@ -298,7 +399,19 @@ def effective_mode_from_vibrations(
     displacements = modes.reshape(modes.shape[0], -1)
 
     # drop rigid-body and unstable modes before the projection divides by
-    # their force constants
+    # their force constants; a rigid-body mode lands on either side of zero, so
+    # only an imaginary frequency above the floor says anything about the
+    # structure
+    unstable = frequencies.imag > frequency_floor
+    if unstable.any():
+        warnings.warn(
+            f"Dropping {int(unstable.sum())} imaginary mode(s), the largest at "
+            f"{frequencies.imag[unstable].max():.1f}i cm^-1, before projecting "
+            "onto the donor-acceptor axis. The structure is not a minimum, so "
+            "the effective mode is missing whatever compliance they carried.",
+            stacklevel=2,
+        )
+
     vibrational = (frequencies.imag == 0) & (frequencies.real > frequency_floor)
     if not vibrational.any():
         raise ValueError(
