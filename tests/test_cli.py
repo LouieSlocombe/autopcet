@@ -323,7 +323,7 @@ def test_helpers_needing_ase_say_so_when_it_is_missing(
     arguments: list[str],
     match: str,
 ) -> None:
-    """ASE only ships in the `scripts` extra, so its absence must be explained."""
+    """ASE only ships in the `ase` extra, so its absence must be explained."""
     monkeypatch.setitem(sys.modules, "ase.io", None)
 
     paths = [
@@ -333,7 +333,7 @@ def test_helpers_needing_ase_say_so_when_it_is_missing(
     with pytest.raises(ImportError, match=match) as error:
         module.main(paths)  # type: ignore[attr-defined]
 
-    assert "autopcet[scripts]" in str(error.value)
+    assert "autopcet[ase]" in str(error.value)
 
 
 def test_writing_the_geometry_needs_ase(

@@ -151,3 +151,46 @@ def minimize_rmsd_rotation(
 def average_structures(first: FloatArray, second: FloatArray) -> FloatArray:
     """Average two sets of aligned positions atom by atom."""
     return (first + second) / 2
+
+
+PROTON_SCAN_MINIMUM_HALF_WIDTH = 0.5
+"""Smallest half-width in angstrom a proton scan spans."""
+
+PROTON_SCAN_SPAN_FACTOR = 1.7
+"""The scan spans this multiple of the distance between the proton endpoints."""
+
+
+def proton_scan_grid(
+    reactant_positions: FloatArray,
+    product_positions: FloatArray,
+    proton: int,
+    points: int,
+) -> tuple[FloatArray, FloatArray]:
+    """Grid of geometries scanning the proton along its transfer axis.
+
+    The axis passes through the proton's two endpoint positions: optimized on
+    the donor in ``reactant_positions`` and on the acceptor in
+    ``product_positions``. To build a proton potential the proton has to come
+    very close to both the donor and the acceptor, so the scan spans
+    :data:`PROTON_SCAN_SPAN_FACTOR` times the distance between the endpoints,
+    and never less than twice :data:`PROTON_SCAN_MINIMUM_HALF_WIDTH`.
+
+    Returns ``(offsets, geometries)``: the signed displacement of each grid
+    point from the midpoint of the two endpoint positions, shape ``(points,)``,
+    and the geometry at each point, shape ``(points, n_atoms, 3)``. Every atom
+    but the proton sits at its reactant position.
+    """
+    proton_shift = product_positions[proton] - reactant_positions[proton]
+    transfer_distance = float(np.linalg.norm(proton_shift))
+    axis = proton_shift / transfer_distance
+    midpoint = 0.5 * (reactant_positions[proton] + product_positions[proton])
+
+    half_width = max(
+        PROTON_SCAN_MINIMUM_HALF_WIDTH,
+        PROTON_SCAN_SPAN_FACTOR * transfer_distance / 2,
+    )
+    offsets = np.linspace(-half_width, half_width, points)
+
+    geometries = np.repeat(reactant_positions[np.newaxis], points, axis=0)
+    geometries[:, proton] = offsets[:, np.newaxis] * axis + midpoint
+    return offsets, geometries

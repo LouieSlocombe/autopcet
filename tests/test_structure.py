@@ -11,6 +11,7 @@ from autopcet import (
     average_structures,
     centre_da_midpoint,
     minimize_rmsd_rotation,
+    proton_scan_grid,
     read_xyz,
     rotation_about_y,
     rotation_about_z,
@@ -151,3 +152,38 @@ def test_average_structures_is_the_midpoint() -> None:
     assert average_structures(first, second) == pytest.approx(
         np.array([[1.0, 2.0, 3.0], [2.0, 2.0, 2.0]])
     )
+
+
+def test_proton_scan_grid_floors_the_half_width() -> None:
+    """A short proton transfer still spans at least half an angstrom each way."""
+    reactant = np.array([[0.0, 0.0, 0.0], [2.4, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    product = np.array([[0.0, 0.0, 0.0], [2.4, 0.0, 0.0], [1.4, 0.0, 0.0]])
+
+    offsets, geometries = proton_scan_grid(reactant, product, 2, 11)
+
+    # 1.7 * 0.4 / 2 = 0.34 is below the 0.5 angstrom floor
+    assert offsets[0] == pytest.approx(-0.5)
+    assert offsets[-1] == pytest.approx(0.5)
+    assert offsets == pytest.approx(-offsets[::-1])
+    assert geometries.shape == (11, 3, 3)
+
+
+def test_proton_scan_grid_spans_the_transfer_distance() -> None:
+    """A long transfer spans 1.7 times the endpoint separation, centred on it."""
+    rng = np.random.default_rng(1)
+    reactant = rng.normal(size=(4, 3))
+    product = reactant.copy()
+    product[1] = reactant[1] + np.array([0.6, 0.8, 0.0])  # transfer distance 1
+
+    offsets, geometries = proton_scan_grid(reactant, product, 1, 5)
+
+    assert offsets[-1] == pytest.approx(1.7 / 2)
+    midpoint = (reactant[1] + product[1]) / 2
+    axis = product[1] - reactant[1]
+    for offset, geometry in zip(offsets, geometries, strict=True):
+        # every atom but the proton sits exactly at its reactant position
+        frame = geometry.copy()
+        frame[1] = reactant[1]
+        assert frame == pytest.approx(reactant, abs=0.0)
+        assert geometry[1] == pytest.approx(midpoint + offset * axis)
+    assert geometries[2, 1] == pytest.approx(midpoint)

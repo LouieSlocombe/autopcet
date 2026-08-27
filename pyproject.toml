@@ -28,10 +28,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ase = [
+  "ase>=3.23",
+]
 examples = [
   "matplotlib>=3.10",
   "pandas>=2.2",
 ]
+# legacy alias for the ase extra, which the command-line helpers also need
 scripts = [
   "ase>=3.23",
 ]

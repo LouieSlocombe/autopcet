@@ -19,9 +19,8 @@ with ``{state}``, ``{charge}``, and ``{multiplicity}``.
 import argparse
 from pathlib import Path
 
-import numpy as np
-
 from ..gaussian_io import DEFAULT_SP_TEMPLATE, write_gaussian_input
+from ..structure import proton_scan_grid
 from ._io import load_template, read_structure
 
 
@@ -101,23 +100,11 @@ def main(argv: list[str] | None = None) -> None:
     symbols, reactant_positions = read_structure(options.reactant_path)
     _, product_positions = read_structure(options.product_path)
 
-    # the proton axis passes through the two optimized proton positions
-    proton_shift = (
-        product_positions[options.proton] - reactant_positions[options.proton]
-    )
-    transfer_distance = float(np.linalg.norm(proton_shift))
-    axis = proton_shift / transfer_distance
-    midpoint = 0.5 * (
-        reactant_positions[options.proton] + product_positions[options.proton]
+    _, geometries = proton_scan_grid(
+        reactant_positions, product_positions, options.proton, options.points
     )
 
-    half_width = max(0.5, 1.7 * transfer_distance / 2)
-    offsets = np.linspace(-half_width, half_width, options.points)
-
-    for i, offset in enumerate(offsets):
-        positions = reactant_positions.copy()
-        positions[options.proton] = offset * axis + midpoint
-
+    for i, positions in enumerate(geometries):
         directory = output_dir / f"{i:02d}"
         directory.mkdir(parents=True, exist_ok=True)
         write_gaussian_input(

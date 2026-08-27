@@ -32,14 +32,17 @@ python -m pip install -e .
 On Windows PowerShell, activate the environment with
 `.venv\Scripts\Activate.ps1` instead.
 
-The examples additionally use matplotlib and pandas, and the `autopcet-*`
-command-line helpers use ASE to read structure files; install them through the
-optional extras:
+The examples additionally use matplotlib and pandas, and ASE powers both the
+in-process scan runners in `autopcet.ase_io` and the structure-file reading of
+the `autopcet-*` command-line helpers; install them through the optional
+extras:
 
 ```bash
 python -m pip install -e ".[examples]"
-python -m pip install -e ".[scripts]"
+python -m pip install -e ".[ase]"
 ```
+
+(`scripts` is kept as a legacy alias for the `ase` extra.)
 
 For development, install the dev dependency group as well:
 
@@ -141,6 +144,11 @@ data and a reference output to compare against:
 5. `example5_RNR_nonadiabaticity` — vibronic couplings and nonadiabaticity
    analysis for the RNR Y356-Y731 interface, in the gas phase
    (`--config gas`) or in the protein environment (`--config env`).
+6. `example6_ORCA_ASE` — the whole workflow run in-process through ASE with
+   ORCA: donor-acceptor scan, proton endpoint optimizations, proton
+   potentials, effective mode, rate constant, and KIE. Unlike the others it
+   needs a working ORCA installation (pass its path with `--orca`) and your
+   own reactant/product structures.
 
 Run an example from inside its own directory, e.g.:
 
@@ -169,7 +177,7 @@ Installing the package also installs four helpers that prepare the Gaussian
 inputs a calculation like the ones above starts from. They wrap
 `autopcet.structure` and `autopcet.gaussian_io`, so anything they do is also
 available from Python. Reading structure files in formats other than xyz needs
-ASE, from the `scripts` extra. Every one of them takes `--help`.
+ASE, from the `ase` extra. Every one of them takes `--help`.
 
 The four run in the order below, which is the order a proton potential is built
 in.
@@ -216,8 +224,10 @@ aligned intermediates are written alongside their inputs, and the average goes
 to `AVERAGE_STRUCTURE.xyz` unless `-o` says otherwise.
 
 From the averaged structure, optimize the proton on the donor for the reactant
-and on the acceptor for the product, with every other nucleus frozen. There is
-no helper for that step.
+and on the acceptor for the product, with every other nucleus frozen. With
+Gaussian, set that frozen optimization up by hand; with an ASE calculator,
+`optimize_proton` does it in-process (see
+[Running the scans with an ASE calculator](#running-the-scans-with-an-ase-calculator)).
 
 ### 3. Scan the proton along its transfer axis
 
@@ -250,6 +260,65 @@ $`P(R)`$ the rate constant is thermally averaged over.
 > Run the frequency job with `#P` and `freq=HPmodes`. The parser reads the
 > high-precision normal modes those settings print and will not work without
 > them.
+
+## Running the scans with an ASE calculator
+
+Everything the helpers above prepare Gaussian inputs for can also run
+in-process against any [ASE](https://ase-lib.org) calculator — ORCA, xTB, or
+anything else implementing ASE's `Calculator` interface — through
+`autopcet.ase_io`, installed with the `ase` extra. The diabatic electronic
+states are selected through the calculator: configure one per state, carrying
+that state's charge and multiplicity, and run each scan once per state.
+
+```python
+from ase.calculators.orca import ORCA, OrcaProfile
+from ase.io import read
+
+from autopcet import (
+    effective_mode_from_vibrations,
+    optimize_proton,
+    run_da_scan,
+    run_proton_scan,
+    run_vibrations,
+)
+
+profile = OrcaProfile(command="/opt/orca/orca")
+reactant_calc = ORCA(
+    profile=profile,
+    directory="reac",
+    charge=0,
+    mult=1,
+    orcasimpleinput="B3LYP def2-SVP TightSCF",
+)
+# ... and a product_calc with that state's charge and multiplicity
+
+# 1. reoptimize the state on a grid of frozen donor-acceptor distances
+scan = run_da_scan(read("reac.xyz"), 0, 2, reactant_calc, [2.4, 2.5, 2.6])
+
+# 2. align and average with autopcet.structure as before, then optimize the
+#    proton endpoints with the rest of the frame frozen
+endpoint = optimize_proton(averaged, 1, reactant_calc)
+
+# 3. the proton potential along the transfer axis, on the same grid the
+#    command-line helper writes; feeds PCET directly
+potential = run_proton_scan(reactant_endpoint, product_endpoint, 1, reactant_calc)
+pcet = PCET((potential.offsets, potential.relative_energies), ...)
+
+# 4. the effective donor-acceptor mode, in place of autopcet-keff
+mode = effective_mode_from_vibrations(
+    run_vibrations(equilibrium, reactant_calc), donor=0, acceptor=2
+)
+```
+
+`examples/example6_ORCA_ASE` walks the full pipeline. For jobs run elsewhere —
+on a cluster, say — keep writing inputs with `autopcet-scan-proton` and skip
+the manual energy table afterwards: `read_scan_energies(directory, state)`
+walks the numbered directories the helper created and reads the finished
+outputs in any format ASE recognizes, Gaussian logs and ORCA outputs included.
+
+> [!NOTE]
+> Point `OrcaProfile` at the full path of your ORCA binary. On desktop Linux a
+> bare `orca` on the PATH is usually the GNOME screen reader, not ORCA.
 
 ## Development
 

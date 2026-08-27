@@ -1,23 +1,19 @@
 """Structure file input shared by the command-line helpers.
 
 xyz files are read with :func:`autopcet.structure.read_xyz`; anything else, and
-anything needing an ASE ``Atoms`` object, goes through ASE, which the
-``scripts`` extra installs.
+anything needing an ASE ``Atoms`` object, goes through ASE, which the ``ase``
+extra installs.
 """
 
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from .._types import FloatArray
+from ..ase_io import ASE_HINT as _ASE_HINT
 from ..structure import read_xyz
 
 if TYPE_CHECKING:
     from ase import Atoms
-
-_ASE_HINT = (
-    "{need} needs the Atomic Simulation Environment. Install it with "
-    '`pip install "autopcet[scripts]"`.'
-)
 
 
 def read_atoms(path: str | Path, need: str = "Reading this structure") -> Atoms:

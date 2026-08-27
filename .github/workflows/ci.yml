@@ -29,7 +29,7 @@ jobs:
       - name: Install the package and development tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --group dev -e ".[examples,scripts]"
+          python -m pip install --group dev -e ".[examples,ase]"
 
       - name: Lint
         run: ruff check .
