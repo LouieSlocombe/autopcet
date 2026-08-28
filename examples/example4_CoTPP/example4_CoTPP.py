@@ -1,7 +1,7 @@
 """Heterogeneous electrochemical PCET for CoTPP on graphene, combining the EDL
 model with a density-of-states average over the electrode levels."""
 
-from typing import TextIO
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,16 +18,19 @@ from autopcet import (
     MASS_DEUTERON,
     MASS_PROTON,
     PCET,
+    FloatArray,
+    ScalarOrArrayFunction,
     fermi_distribution,
     fit_poly6,
     make_edl_model,
+    write_contribution_table,
 )
-from autopcet.plotting import distance_colors, plot_edl_profile, use_style
+from autopcet.plotting import distance_colors, figure_of, plot_edl_profile, use_style
 
-# =========================================================================================
+# ===========================================================
 # Define the thermodynamic parameters, taken from
 # Hutchison et. al. ACS Catal. 2024, 19, 14363-14372.
-# =========================================================================================
+# ===========================================================
 
 # Donor-Acceptor distance values sampled in calculations
 distances = np.array(
@@ -75,15 +78,16 @@ FREE_ENERGY_D = 0.55 - 0.009296397  # eV
 N_STATES = 10  # how many states to include in the rate constant calculation
 STATES_TO_SHOW = 9  # how many states to print
 
-# ==========================================================================================
-# Define the electric double layer model and non-bonded parameters used for the work terms
-# ==========================================================================================
+# ===========================================================
+# Define the electric double layer model and the non-bonded
+# parameters used for the work terms
+# ===========================================================
 D_IHL = 3.6  # angstrom
 D_OHL = 3.5  # angstrom
 EPS_IHL = 2.7
 EPS_STATIC = 78.0
 EPS_OPTICAL = 1.78
-DIPOLE = "calculate"
+DIPOLE: float | Literal["calculate"] = "calculate"
 WATER_DENSITY = 0.9970470  # g/cm^3
 WATER_MOLAR_MASS = 18.01528  # g/mol
 ION_CONCENTRATION = 0.5  # mol/L
@@ -91,7 +95,7 @@ EDL_CAPACITANCE = 15  # microfarad/cm^2
 PZFC_VS_SHE = 0.04  # V
 
 
-def make_potential_drop(potential_vs_she: float):
+def make_potential_drop(potential_vs_she: float) -> ScalarOrArrayFunction:
     """EDL potential drop as a function of distance, at a given electrode potential."""
     return make_edl_model(
         potential_vs_she,
@@ -135,36 +139,41 @@ assert edl_axes is not None
 edl_axes.set_xlim(0, 10)
 edl_axes.legend(loc=4, frameon=True, framealpha=1)
 
-edl_axes.get_figure().savefig("EDL_model.png")
+figure_of(edl_axes).savefig("EDL_model.png")
 plt.close("all")
 
 
 # Buckingham potentials using coefficients determined from fitting DFT data.
-def reactant_work(distance):
+def reactant_work[T: (float, FloatArray)](distance: T) -> T:
     """CoTPP + H_3O^+ non-bonded interaction, in eV."""
-    return KCAL_TO_EV * (
+    energy: T = KCAL_TO_EV * (
         692272.09 * np.exp(-distance / 0.25730094) - 3699.5922 / distance**6
     )
+    return energy
 
 
-def product_work(distance):
+def product_work[T: (float, FloatArray)](distance: T) -> T:
     """CoHTPP + H_2O non-bonded interaction, in eV."""
-    return KCAL_TO_EV * (
+    energy: T = KCAL_TO_EV * (
         54305.39 * np.exp(-distance / 0.39709137) - 19539.245 / distance**6
     )
+    return energy
 
 
-def tafel(applied_potential, prefactor, intercept):
+def tafel(
+    applied_potential: FloatArray, prefactor: float, intercept: float
+) -> FloatArray:
     """General Tafel equation; the prefactor is alpha*F/RT.
 
     Fitting ln[k_H](E) with this yields the transfer coefficient alpha.
     """
-    return -prefactor * applied_potential + intercept
+    values: FloatArray = -prefactor * applied_potential + intercept
+    return values
 
 
-# =========================================================================================
+# ===========================================================
 # Read data from files
-# =========================================================================================
+# ===========================================================
 
 reactant_potentials = []
 product_potentials = []
@@ -194,31 +203,10 @@ for distance in distances:
     reactant_potentials.append(fit_poly6(reactant["x"], reactant_energies))
     product_potentials.append(fit_poly6(product["x"], product_energies))
 
-# =========================================================================================
-# Calculate the KIE of electrochemical PCET of CoTPP at different R and applied potentials
-# =========================================================================================
-
-
-def write_contribution_table(stream: TextIO, system: PCET, isotope: str) -> None:
-    """Tabulate how much each pair of vibronic states contributes to the rate."""
-    percentage = 100 * system.rate_contributions / system.total_rate_constant
-
-    stream.write(f"\n{isotope}\n" + "=" * 125 + "\n")
-    stream.write(
-        "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\t"
-        "Delta G^#_uv / eV\t% Contrib.\n"
-    )
-    stream.write("-" * 125 + "\n")
-    for u in range(STATES_TO_SHOW):
-        for v in range(STATES_TO_SHOW):
-            stream.write(
-                f"({u:d}, {v:d})\t\t{system.populations[u]:.3e}\t\t"
-                f"{system.overlaps[u, v] ** 2:.3e}\t\t"
-                f"{system.pair_free_energies[u, v]:+.3f}\t\t\t"
-                f"{system.pair_activation_energies[u, v]:.3f}\t\t\t"
-                f"{percentage[u, v]:.1f}\n"
-            )
-    stream.write("=" * 125 + "\n\n")
+# ===========================================================
+# Calculate the KIE of electrochemical PCET of CoTPP at different
+# R and applied potentials
+# ===========================================================
 
 
 def make_system(index: int, free_energy: float) -> PCET:
@@ -312,8 +300,12 @@ for n, applied_potential in enumerate(applied_potentials):
                     log.write(
                         f"\nR = {distance:.3f}A, epsilon = 0.005, E_appl = -0.66\n"
                     )
-                    write_contribution_table(log, system_h, "H")
-                    write_contribution_table(log, system_d, "D")
+                    write_contribution_table(
+                        log, system_h, label="H", n_states=STATES_TO_SHOW
+                    )
+                    write_contribution_table(
+                        log, system_d, label="D", n_states=STATES_TO_SHOW
+                    )
 
         # Numerical integration over the electrode energy levels
         rates_h[i] = simpson(occupied_dos * rates_h_of_energy, x=electrode_energies)
@@ -326,9 +318,9 @@ for n, applied_potential in enumerate(applied_potentials):
                 f"{applied_potential:.2f}\t\t{distance:.3f}\t\t{rate_h:.4e}\t{rate_d:.4e}\n"
             )
 
-    # =========================================================================================
+    # ===========================================================
     # Calculate P(R): the potential-dependent concentration of proton donors at R
-    # =========================================================================================
+    # ===========================================================
 
     BULK_CONCENTRATION = 1  # molar, for pH = 0 conditions
     work_of_distance = reactant_work(fine_grid) + potential_drop(fine_grid)
@@ -336,9 +328,9 @@ for n, applied_potential in enumerate(applied_potentials):
         np.exp(-work_of_distance / (BOLTZMANN * TEMPERATURE)) * BULK_CONCENTRATION
     )
 
-    # =========================================================================================
+    # ===========================================================
     # Thermally average the PCET rate constant over R
-    # =========================================================================================
+    # ===========================================================
 
     # the integration should run from 0 to infinity, but in practice we integrate
     # over the interval where the integrand has reached zero at both limits

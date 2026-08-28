@@ -155,10 +155,12 @@ def main(argv: list[str] | None = None) -> None:
             f"are different: {reactant_distance} and {product_distance}"
         )
         print(
-            "Donor and acceptor atoms are along the Z-axis and the midpoint is aligned)\n"
+            "Donor and acceptor atoms are along the Z-axis and the "
+            "midpoint is aligned\n"
         )
         print(
-            "Average structure is labeled by the DA distance in the reactant configuration\n"
+            "Average structure is labeled by the DA distance in the "
+            "reactant configuration\n"
         )
 
     # rotate the product around Z to minimize the RMSD to the reactant
@@ -185,7 +187,8 @@ def main(argv: list[str] | None = None) -> None:
         options.output_path,
         reactant_symbols,
         average_structures(reactant_positions, product_positions),
-        f"Average reactant/product configuration: DA distance {reactant_distance:10.6f} Å",
+        "Average reactant/product configuration: "
+        f"DA distance {reactant_distance:10.6f} Å",
     )
 
 

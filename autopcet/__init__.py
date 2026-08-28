@@ -2,6 +2,7 @@
 
 from importlib.metadata import version as _version
 
+from ._types import FloatArray, PotentialFunction, ScalarOrArrayFunction
 from .ase_io import (
     DistanceScan,
     ProtonScan,
@@ -72,6 +73,11 @@ from .rates import (
     kinetic_isotope_effect,
     temperature_sweep,
 )
+from .reporting import (
+    contribution_percentages,
+    format_contribution_table,
+    write_contribution_table,
+)
 from .structure import (
     align_da_to_z,
     average_structures,
@@ -119,13 +125,17 @@ __all__ = [
     "WAVENUMBER_TO_EV",
     "DistanceScan",
     "EffectiveMode",
+    "FloatArray",
     "GaussianFrequencies",
     "KappaCoupling",
+    "PotentialFunction",
     "ProtonScan",
+    "ScalarOrArrayFunction",
     "__version__",
     "align_da_to_z",
     "average_structures",
     "centre_da_midpoint",
+    "contribution_percentages",
     "donor_acceptor_distribution",
     "driving_force_sweep",
     "effective_da_mode",
@@ -137,6 +147,7 @@ __all__ = [
     "fit_poly6",
     "fit_poly8",
     "fit_potential",
+    "format_contribution_table",
     "gaussian",
     "inverted_morse",
     "is_array",
@@ -162,6 +173,7 @@ __all__ = [
     "run_proton_scan",
     "run_vibrations",
     "temperature_sweep",
+    "write_contribution_table",
     "write_gaussian_input",
     "write_xyz",
 ]

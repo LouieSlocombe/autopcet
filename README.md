@@ -45,8 +45,8 @@ python -m pip install -e ".[examples]"
 python -m pip install -e ".[ase]"
 ```
 
-(`examples` includes `plotting`, and `scripts` is kept as a legacy alias for
-the `ase` extra.) Importing `autopcet` itself never needs any of them.
+(`examples` includes `plotting`.) Importing `autopcet` itself never needs any
+of them.
 
 For development, install the dev dependency group as well:
 
@@ -143,17 +143,22 @@ needs matplotlib, from the `plotting` extra, and is imported explicitly --
 ```python
 import matplotlib.pyplot as plt
 
-from autopcet.plotting import plot_proton_states, plot_state_pair_map, use_style
+from autopcet.plotting import (
+    figure_of,
+    plot_proton_states,
+    plot_state_pair_map,
+    use_style,
+)
 
 use_style()
 
 # the two diabats with their vibrational states, one panel each
 reactant_axes, _ = plot_proton_states(system, n_states=6)
-reactant_axes.get_figure().savefig("proton_states.png")
+figure_of(reactant_axes).savefig("proton_states.png")
 
 # which pairs of vibronic states actually carry the rate constant
 ax = plot_state_pair_map(system, "contribution")
-ax.get_figure().savefig("state_pairs.png")
+figure_of(ax).savefig("state_pairs.png")
 plt.close("all")
 ```
 
@@ -206,6 +211,31 @@ with style_context(**{"axes.labelsize": 18}):
     ...
 ```
 
+## Reporting
+
+The same state-pair matrices go out as text through `autopcet.reporting`, which
+needs no matplotlib:
+
+```python
+import sys
+
+from autopcet import write_contribution_table
+
+# every pair's population, |S_uv|^2, free energy, activation energy, and share
+# of the total rate constant
+write_contribution_table(sys.stdout, system, n_states=4)
+
+with open("contributions.log", "w") as log:
+    write_contribution_table(log, system, label="H", n_states=4)
+    write_contribution_table(log, system_d, label="D", n_states=4)
+```
+
+`format_contribution_table` returns the same block as a string, and
+`contribution_percentages` returns just the percentage matrix.
+`plot_state_pair_map` draws these numbers instead; the one difference is that
+the map shows `|S_uv|`, which reads better on a linear colour scale, where the
+table prints the `|S_uv|^2` that actually enters the rate.
+
 ## Examples
 
 The `examples/` directory contains worked calculations, each with its input
@@ -217,7 +247,9 @@ data and a reference output to compare against:
    donor-acceptor distance for the RNR Y356-Y731 interface, thermally averaged
    over an umbrella-sampled P(R) distribution.
 3. `example3_BIP_KIE` — electrochemical and photochemical KIEs for a
-   benzimidazole-phenol (BIP) system.
+   benzimidazole-phenol (BIP) system, one script each
+   (`example3_BIP_KIE_electrochemical.py` and `..._photochemical.py`). They
+   share a directory, so every file each writes is tagged with its own name.
 4. `example4_CoTPP` — heterogeneous electrochemical PCET for CoTPP on
    graphene, combining the EDL model with a density-of-states average.
 5. `example5_RNR_nonadiabaticity` — vibronic couplings and nonadiabaticity

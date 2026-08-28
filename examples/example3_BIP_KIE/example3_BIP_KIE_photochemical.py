@@ -1,8 +1,6 @@
 """Photochemical KIE for a benzimidazole-phenol (BIP) system, thermally
 averaged over the proton donor-acceptor distance."""
 
-from typing import TextIO
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -18,13 +16,19 @@ from autopcet import (
     donor_acceptor_distribution,
     fit_poly6,
     fit_poly8,
+    write_contribution_table,
 )
-from autopcet.plotting import plot_state_pair_map, plot_thermal_average, use_style
+from autopcet.plotting import (
+    figure_of,
+    plot_state_pair_map,
+    plot_thermal_average,
+    use_style,
+)
 
-# =========================================================================================
+# ===========================================================
 # Define the thermodynamic parameters
 # for photochemical oxidation of BIP
-# =========================================================================================
+# ===========================================================
 
 # R values sampled in calculations
 distances = np.arange(2.37, 2.92, 0.05)
@@ -35,6 +39,10 @@ REORGANIZATION_ENERGY = 21.4 * KCAL_TO_EV
 ELECTRONIC_COUPLING = 1 * KCAL_TO_EV
 TEMPERATURE = 298.15
 
+# Both example 3 scripts run in this directory, so every file each writes
+# carries its own tag and neither can overwrite the other's results.
+OUTPUT_TAG = "photochemical"
+
 N_STATES = 20  # how many states to include in the rate constant calculation
 STATES_TO_SHOW = 7  # how many states to print
 
@@ -43,9 +51,9 @@ EQUILIBRIUM_DISTANCE = 2.58  # equilibrium proton donor-acceptor distance
 
 use_style()
 
-# =========================================================================================
+# ===========================================================
 # Read data from files
-# =========================================================================================
+# ===========================================================
 
 reactant_potentials = []
 product_potentials = []
@@ -78,33 +86,11 @@ for i, distance in enumerate(distances):
     reactant_potentials.append(fit_reduced(reduced["x"], reduced_energies))
     product_potentials.append(fit_poly8(oxidized["x"], oxidized_energies))
 
-# =========================================================================================
+# ===========================================================
 # Calculate the KIE of photochemical PCET of BIP at different R
-# =========================================================================================
+# ===========================================================
 
 # for photochemical PCET, the integration over epsilon is not needed
-
-
-def write_contribution_table(stream: TextIO, system: PCET, isotope: str) -> None:
-    """Tabulate how much each pair of vibronic states contributes to the rate."""
-    percentage = 100 * system.rate_contributions / system.total_rate_constant
-
-    stream.write(f"\n{isotope}\n" + "=" * 125 + "\n")
-    stream.write(
-        "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\t"
-        "Delta G^#_uv / eV\t% Contrib.\n"
-    )
-    stream.write("-" * 125 + "\n")
-    for u in range(STATES_TO_SHOW):
-        for v in range(STATES_TO_SHOW):
-            stream.write(
-                f"({u:d}, {v:d})\t\t{system.populations[u]:.3e}\t\t"
-                f"{system.overlaps[u, v] ** 2:.3e}\t\t"
-                f"{system.pair_free_energies[u, v]:+.3f}\t\t\t"
-                f"{system.pair_activation_energies[u, v]:.3f}\t\t\t"
-                f"{percentage[u, v]:.1f}\n"
-            )
-    stream.write("=" * 125 + "\n\n")
 
 
 def make_system(index: int) -> PCET:
@@ -140,23 +126,25 @@ for i, distance in enumerate(distances):
     # does differ is which pairs of vibronic states carry the rate, so those go
     # into a map beside the table.
     pair_axes = plot_state_pair_map(system_h, "contribution", n_states=STATES_TO_SHOW)
-    pair_axes.get_figure().savefig(f"State_pairs_H_R{distance:.2f}.png")
+    figure_of(pair_axes).savefig(f"State_pairs_H_R{distance:.2f}_{OUTPUT_TAG}.png")
     plt.close("all")
 
-    with open(f"rate_constant_contribution_R{distance:.2f}A.log", "w") as log:
-        log.write(f"\nR = {distance:.2f}A, epsilon = 0, eta = 0\n")
-        write_contribution_table(log, system_h, "H")
-        write_contribution_table(log, system_d, "D")
+    with open(
+        f"rate_constant_contribution_R{distance:.2f}A_{OUTPUT_TAG}.log", "w"
+    ) as log:
+        log.write(f"\nR = {distance:.2f}A\n")
+        write_contribution_table(log, system_h, label="H", n_states=STATES_TO_SHOW)
+        write_contribution_table(log, system_d, label="D", n_states=STATES_TO_SHOW)
 
 # Print PCET rate constants for H and D at each R to a file
-with open("kPCET_data.log", "w") as log:
+with open(f"kPCET_data_{OUTPUT_TAG}.log", "w") as log:
     log.write("# R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
     for distance, rate_h, rate_d in zip(distances, rates_h, rates_d, strict=True):
         log.write(f"{distance:.2f}\t\t{rate_h:.4e}\t{rate_d:.4e}\n")
 
-# =========================================================================================
+# ===========================================================
 # Thermally average the PCET rate constant over R
-# =========================================================================================
+# ===========================================================
 
 # the integration should run from 0 to infinity, but in practice we integrate
 # over the interval where the integrand has reached zero at both limits
@@ -199,15 +187,15 @@ print(f"k_H_tot = {average_rate_h:.4e} s^-1")
 print(f"k_D_tot = {average_rate_d:.4e} s^-1")
 print(f"KIE = {average_rate_h / average_rate_d:.2f}")
 
-# =========================================================================================
+# ===========================================================
 # Plot k(R), P(R), and k(R)P(R) for both isotopes
-# =========================================================================================
+# ===========================================================
 
 for isotope, rates_fine in (("H", rates_h_fine), ("D", rates_d_fine)):
     axes = plot_thermal_average(fine_grid, rates_fine, distribution)
     axes.set_title(isotope)
     axes.set_xlim(2.1, 3.0)
     axes.set_ylim(0, 1.2)
-    axes.get_figure().savefig(f"kR-PR_{isotope}.png")
+    figure_of(axes).savefig(f"kR-PR_{isotope}_{OUTPUT_TAG}.png")
 
 plt.close("all")

@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
 from autopcet import (
@@ -33,6 +32,7 @@ from autopcet.plotting import (
     STYLE,
     add_legend,
     distance_colors,
+    figure_of,
     plot_arrhenius,
     plot_crossing,
     plot_diabats_and_adiabats,
@@ -86,13 +86,6 @@ def alphas(ax: Axes) -> list[float]:
     """The alpha of every line on the axes, unset counting as fully opaque."""
     values = [line.get_alpha() for line in ax.lines]
     return [1.0 if value is None else float(value) for value in values]
-
-
-def figure_of(ax: Axes) -> Figure:
-    """The figure an axes belongs to, narrowed off ``Figure | SubFigure | None``."""
-    figure = ax.get_figure()
-    assert isinstance(figure, Figure)
-    return figure
 
 
 def renders(ax: Axes) -> None:

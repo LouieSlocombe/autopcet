@@ -15,7 +15,12 @@ from matplotlib.axes import Axes
 from scipy.interpolate import CubicSpline
 
 from autopcet import KCAL_TO_EV, MASS_PROTON, KappaCoupling, fit_bspline
-from autopcet.plotting import plot_crossing, plot_diabats_and_adiabats, use_style
+from autopcet.plotting import (
+    figure_of,
+    plot_crossing,
+    plot_diabats_and_adiabats,
+    use_style,
+)
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
@@ -86,7 +91,7 @@ def style_axes(axis: Axes, bottom: float) -> None:
 # the diabats, where they cross, the slopes through it, and the ground states
 crossing_axes = plot_crossing(system)
 style_axes(crossing_axes, bottom=0.0)
-crossing_axes.get_figure().savefig(f"Proton_pot_w_slope_Y356_Y731_{config}.png")
+figure_of(crossing_axes).savefig(f"Proton_pot_w_slope_Y356_Y731_{config}.png")
 
 # ===========================================================
 # Plot adiabatic proton potentials
@@ -94,6 +99,6 @@ crossing_axes.get_figure().savefig(f"Proton_pot_w_slope_Y356_Y731_{config}.png")
 
 adiabat_axes = plot_diabats_and_adiabats(system, annotate_splitting=False)
 style_axes(adiabat_axes, bottom=-0.2)
-adiabat_axes.get_figure().savefig(f"Proton_pot_adiabatic_Y356_Y731_{config}.png")
+figure_of(adiabat_axes).savefig(f"Proton_pot_adiabatic_Y356_Y731_{config}.png")
 
 plt.close("all")

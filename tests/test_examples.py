@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import example1_data
 import pytest
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -110,3 +111,57 @@ def test_example5_configurations_write_separate_figures(tmp_path: Path) -> None:
         "Proton_pot_w_slope_Y356_Y731_env.png",
         "Proton_pot_w_slope_Y356_Y731_gas.png",
     ]
+
+
+# "kPCET_data_{OUTPUT_TAG}.log", "Proton_states_H_R{distance:.2f}_{OUTPUT_TAG}.png"
+_OUTPUT_NAME = re.compile(r'"([^"\n]*\.(?:log|png))"')
+_OUTPUT_TAG = re.compile(r'^OUTPUT_TAG = "(\w+)"$', re.MULTILINE)
+
+
+def outputs_written_by(script: Path) -> set[str]:
+    """The file names a script writes, with its ``OUTPUT_TAG`` resolved."""
+    source = script.read_text()
+
+    tag = _OUTPUT_TAG.search(source)
+    assert tag, f"{script.name} declares no OUTPUT_TAG"
+
+    names = _OUTPUT_NAME.findall(source)
+    assert names, f"no output file names found in {script.name}"
+    assert all("{OUTPUT_TAG}" in name for name in names), (
+        f"{script.name} writes an untagged file: {sorted(names)}"
+    )
+    return {name.replace("{OUTPUT_TAG}", tag[1]) for name in names}
+
+
+def test_the_example3_scripts_write_separate_files() -> None:
+    """The two example 3 runs share a directory, so their outputs must differ.
+
+    Both are far too slow to run here -- the electrochemical one sweeps 11
+    distances by 101 electrode energies by two isotopes -- so this reads the
+    file names out of the sources rather than running them.
+    """
+    directory = EXAMPLES / "example3_BIP_KIE"
+    electrochemical = outputs_written_by(
+        directory / "example3_BIP_KIE_electrochemical.py"
+    )
+    photochemical = outputs_written_by(directory / "example3_BIP_KIE_photochemical.py")
+
+    assert not electrochemical & photochemical
+
+
+def test_the_shared_fixture_parameters_are_still_example1s() -> None:
+    """The fixtures claim example 1's thermodynamics, so check they still are.
+
+    Its potentials come from the same data file the example reads, but these
+    four scalars are stated on both sides and could drift apart.
+    """
+    source = (EXAMPLES / "example1_basic_usage" / "example1_basic_usage.py").read_text()
+    declared = dict(labelled_values(source))
+
+    for name, value in (
+        ("TEMPERATURE", example1_data.TEMPERATURE),
+        ("ELECTRONIC_COUPLING", example1_data.ELECTRONIC_COUPLING),
+        ("REACTION_FREE_ENERGY", example1_data.REACTION_FREE_ENERGY),
+        ("REORGANIZATION_ENERGY", example1_data.REORGANIZATION_ENERGY),
+    ):
+        assert declared[name] == value, name

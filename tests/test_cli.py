@@ -198,7 +198,8 @@ def test_scan_da_distance_accepts_a_custom_template(structures: Path) -> None:
     pytest.importorskip("ase")
     template = structures / "header.txt"
     template.write_text(
-        "%mem=8GB\n# PBE1PBE/def2SVP opt=(ModRedundant)\n\n{state}\n\n{charge} {multiplicity}\n"
+        "%mem=8GB\n# PBE1PBE/def2SVP opt=(ModRedundant)\n\n"
+        "{state}\n\n{charge} {multiplicity}\n"
     )
 
     scan_da_distance.main(

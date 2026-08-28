@@ -38,10 +38,6 @@ examples = [
 plotting = [
   "matplotlib>=3.10",
 ]
-# legacy alias for the ase extra, which the command-line helpers also need
-scripts = [
-  "ase>=3.23",
-]
 
 [project.scripts]
 autopcet-align-average = "autopcet.cli.align_average:main"
@@ -106,10 +102,12 @@ src = ["."]
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["B", "E4", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
+# E501 by name rather than the E5 prefix, so the declared line-length is
+# enforced without pulling in whatever else lands under that prefix later
+select = ["B", "E4", "E501", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
 
 [tool.mypy]
-files = ["autopcet", "tests"]
+files = ["autopcet", "examples", "tests"]
 python_version = "3.14"
 pretty = true
 show_error_codes = true
@@ -119,5 +117,6 @@ warn_unreachable = true
 untyped_calls_exclude = ["ase"]
 
 [[tool.mypy.overrides]]
-module = ["ase.*", "numba.*", "scipy.*"]
+# pandas ships no py.typed, and the examples read their data through it
+module = ["ase.*", "numba.*", "pandas.*", "scipy.*"]
 ignore_missing_imports = true

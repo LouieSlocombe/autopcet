@@ -316,3 +316,12 @@ def donor_acceptor_distribution(
     )
     weights: FloatArray = np.exp(-energy / (BOLTZMANN * temperature))
     return weights
+
+
+def _require_solved(system: PCET) -> None:
+    """Fail clearly when ``calculate`` has not run and there are no states yet."""
+    if not hasattr(system, "reactant_wavefunctions"):
+        raise ValueError(
+            "This PCET system has no proton states yet. Call "
+            "'system.calculate(...)' before using it."
+        )

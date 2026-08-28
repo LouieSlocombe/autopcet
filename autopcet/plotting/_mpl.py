@@ -19,6 +19,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 MATPLOTLIB_HINT = (
     '{need} needs matplotlib. Install it with `pip install "autopcet[plotting]"`.'
@@ -73,6 +74,16 @@ def prepare_axes_grid(
     plt = pyplot(need)
     _, created = plt.subplots(nrows, ncols, layout="constrained", **figure_kwargs)
     return [cast("Axes", item) for item in np.atleast_1d(created).ravel()]
+
+
+def figure_of(ax: Axes) -> Figure:
+    """The figure an axes belongs to, narrowed off ``Figure | SubFigure | None``.
+
+    An axes always has one, but matplotlib types the accessor optionally and
+    lets a sub-figure stand in for it; ``root=True`` asks for the real figure,
+    which is the one that can be saved.
+    """
+    return cast("Figure", ax.get_figure(root=True))
 
 
 def add_legend(ax: Axes, **kwargs: Any) -> None:

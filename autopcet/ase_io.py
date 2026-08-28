@@ -2,7 +2,7 @@
 
 Everything :mod:`autopcet.gaussian_io` prepares Gaussian input files for can
 also run in-process against an ASE calculator -- ORCA, xTB, or anything else
-implementing the ``Calculator`` interface: the constrained donor-acceptor
+implementing ASE's ``BaseCalculator`` interface: the constrained donor-acceptor
 distance scan, the proton endpoint optimizations, the proton potential scan,
 and the frequency calculation behind the effective donor-acceptor mode. For
 jobs run elsewhere, :func:`read_scan_energies` collects the energies from the
@@ -47,7 +47,7 @@ from .structure import proton_scan_grid
 
 if TYPE_CHECKING:
     from ase import Atoms
-    from ase.calculators.calculator import Calculator
+    from ase.calculators.calculator import BaseCalculator
     from ase.vibrations import VibrationsData
 
 ASE_HINT = (
@@ -141,7 +141,7 @@ def run_proton_scan(
     reactant: Atoms,
     product: Atoms,
     proton: int,
-    calculator: Calculator,
+    calculator: BaseCalculator,
     points: int = 20,
 ) -> ProtonScan:
     """Compute a proton potential along the transfer axis with ``calculator``.
@@ -191,7 +191,7 @@ def run_da_scan(
     structure: Atoms,
     donor: int,
     acceptor: int,
-    calculator: Calculator,
+    calculator: BaseCalculator,
     distances: Sequence[float] | FloatArray,
     fix: int = 0,
     fmax: float = 0.05,
@@ -248,7 +248,7 @@ def run_da_scan(
 def optimize_proton(
     structure: Atoms,
     proton: int,
-    calculator: Calculator,
+    calculator: BaseCalculator,
     fmax: float = 0.01,
     steps: int = 200,
 ) -> Atoms:
@@ -290,7 +290,7 @@ def optimize_proton(
 
 def run_vibrations(
     structure: Atoms,
-    calculator: Calculator,
+    calculator: BaseCalculator,
     indices: Sequence[int] | None = None,
     delta: float = 0.01,
     directory: str | Path = "vib",

@@ -2,17 +2,24 @@
 proton donor-acceptor distance R, thermally averaged over an umbrella-sampled
 P(R) distribution."""
 
-from typing import TextIO
-
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import simpson
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
-from autopcet import EV_TO_KCAL, KCAL_TO_EV, MASS_PROTON, PCET, fit_bspline
+from autopcet import (
+    EV_TO_KCAL,
+    KCAL_TO_EV,
+    MASS_PROTON,
+    PCET,
+    FloatArray,
+    fit_bspline,
+    write_contribution_table,
+)
 from autopcet.plotting import (
     distance_colors,
+    figure_of,
     plot_potential_family,
     plot_proton_states,
     plot_thermal_average,
@@ -20,10 +27,10 @@ from autopcet.plotting import (
     use_style,
 )
 
-# =========================================================================================
+# ===========================================================
 # Define the thermodynamic parameters, taken from
 # Zhong et. al. J. Am. Chem. Soc. 2025, 147, 4459-4468
-# =========================================================================================
+# ===========================================================
 
 # R values sampled in calculations
 distances = np.arange(2.42, 3.2, 0.1)
@@ -37,9 +44,9 @@ TEMPERATURE = 298
 N_STATES = 7  # how many states to include in the rate constant calculation
 STATES_TO_SHOW = 4  # how many states to plot/print
 
-# =========================================================================================
+# ===========================================================
 # Read data from files
-# =========================================================================================
+# ===========================================================
 
 # rainbow colors for plotting the proton potentials
 colors = distance_colors(len(distances))
@@ -87,33 +94,12 @@ ax2.set_ylabel("")
 ax2.set_xlim(-1.2, 1.2)
 ax2.set_ylim(0, 100)
 ax2.set_xticks(np.arange(-1.0, 1.5, 0.5))
-ax1.get_figure().savefig("Proton_potentials.png")
+figure_of(ax1).savefig("Proton_potentials.png")
 plt.close("all")
 
-# =========================================================================================
+# ===========================================================
 # Calculate the PCET rate constant between Y356 and Y731
-# =========================================================================================
-
-
-def write_contribution_table(stream: TextIO, system: PCET) -> None:
-    """Tabulate how much each pair of vibronic states contributes to the rate."""
-    percentage = 100 * system.rate_contributions / system.total_rate_constant
-
-    stream.write(
-        "(u, v)\t\tP_u\t\t\t|S_uv|\t\tDelta G_uv / eV\t\t"
-        "Delta G^#_uv / eV\t% Contrib.\n"
-    )
-    stream.write("-" * 125 + "\n")
-    for u in range(STATES_TO_SHOW):
-        for v in range(STATES_TO_SHOW):
-            stream.write(
-                f"({u:d}, {v:d})\t\t{system.populations[u]:.3e}\t\t"
-                f"{np.abs(system.overlaps[u, v]):.3e}\t\t"
-                f"{system.pair_free_energies[u, v]:+.3f}\t\t\t"
-                f"{system.pair_activation_energies[u, v]:.3f}\t\t\t"
-                f"{percentage[u, v]:.1f}\n"
-            )
-    stream.write("=" * 125 + "\n\n")
+# ===========================================================
 
 
 rates_h = np.zeros(len(distances))
@@ -142,12 +128,12 @@ for i, distance in enumerate(distances):
     product_axes.set_ylim(0, 2.5)
     product_axes.set_xticks(np.arange(-1.0, 1.5, 0.5))
 
-    reactant_axes.get_figure().savefig(f"Proton_states_H_R{distance:.2f}.png")
+    figure_of(reactant_axes).savefig(f"Proton_states_H_R{distance:.2f}.png")
     plt.close("all")
 
     with open(f"rate_constant_contribution_R{distance:.2f}A.log", "w") as log:
         log.write(f"\nR = {distance:.2f}A\n")
-        write_contribution_table(log, system)
+        write_contribution_table(log, system, n_states=STATES_TO_SHOW)
 
 # Print PCET rate constants for H at each R to a file
 with open("kPCET_data.log", "w") as log:
@@ -155,9 +141,9 @@ with open("kPCET_data.log", "w") as log:
     for distance, rate in zip(distances, rates_h, strict=True):
         log.write(f"{distance:.2f}\t\t{rate:.4e}\n")
 
-# =========================================================================================
+# ===========================================================
 # Thermally average the PCET rate constant over R
-# =========================================================================================
+# ===========================================================
 
 # the integration should run from 0 to infinity, but in practice we integrate
 # over the interval where the integrand has reached zero at both limits
@@ -166,8 +152,9 @@ fine_grid = np.linspace(2.0, 4.0, 500)
 
 # Fit k(R) by fitting log k(R) to a quadratic function
 # !!!NOTE!!! Always check if k_PCET * P(R) reaches zero at the limit of your sampled R
-def quadratic(x, a, b, c):
-    return a * x * x + b * x + c
+def quadratic(x: FloatArray, a: float, b: float, c: float) -> FloatArray:
+    values: FloatArray = a * x * x + b * x + c
+    return values
 
 
 rate_fit = curve_fit(quadratic, distances, np.log(rates_h))[0]
@@ -179,8 +166,11 @@ rates_h_fine = np.exp(quadratic(fine_grid, *rate_fit))
 sampled_distances, sampled_distribution = np.loadtxt("p_R_umbrella_A.dat", unpack=True)
 
 
-def poly4(x, a, b, c, d, e):
-    return a * x**4 + b * x**3 + c * x**2 + d * x + e
+def poly4(
+    x: FloatArray, a: float, b: float, c: float, d: float, e: float
+) -> FloatArray:
+    values: FloatArray = a * x**4 + b * x**3 + c * x**2 + d * x + e
+    return values
 
 
 distribution_fit = curve_fit(poly4, sampled_distances, np.log(sampled_distribution))[0]
@@ -199,9 +189,9 @@ print()
 print(f"Dominant R for H = {dominant_distance[0]:.2f}A")
 print(f"k_H_tot = {average_rate_h:.4e} s^-1")
 
-# =========================================================================================
+# ===========================================================
 # plot k(R), P(R), k(R)*P(R) for H
-# =========================================================================================
+# ===========================================================
 
 ax = plot_thermal_average(fine_grid, rates_h_fine, distribution)
 
@@ -212,5 +202,5 @@ ax.set_xticks(np.arange(2.25, 3.75, 0.25))
 ax.set_ylabel("")
 ax.set_yticks([])
 
-ax.get_figure().savefig("kR-PR.png")
+figure_of(ax).savefig("kR-PR.png")
 plt.close("all")

@@ -2,8 +2,8 @@
 
 A golden-rule rate constant is a sum over pairs of reactant and product proton
 states, and which pairs carry it is the most informative thing a calculation
-has to say. The examples only ever wrote those matrices out as text; these
-functions put them on an axes.
+has to say. :func:`autopcet.reporting.write_contribution_table` writes those
+matrices out as text; these functions put them on an axes.
 """
 
 from collections.abc import Callable, Sequence
@@ -12,23 +12,13 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 
 from .._types import FloatArray
-from ..rates import PCET
+from ..rates import PCET, _require_solved
+from ..reporting import contribution_percentages
 from ._mpl import prepare_axes, prepare_axes_grid, pyplot
-from .potentials import _require_solved
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.image import AxesImage
-
-
-def _contribution_percentage(system: PCET) -> FloatArray:
-    """Each state pair's share of the total rate constant, as a percentage."""
-    if system.total_rate_constant <= 0.0:
-        raise ValueError(
-            "The total rate constant is zero, so there are no shares of it to "
-            "plot. Check that 'calculate' ran and did not underflow."
-        )
-    return 100 * system.rate_contributions / system.total_rate_constant
 
 
 class _Quantity(NamedTuple):
@@ -43,7 +33,7 @@ class _Quantity(NamedTuple):
 
 QUANTITIES: dict[str, _Quantity] = {
     "contribution": _Quantity(
-        _contribution_percentage,
+        contribution_percentages,
         r"contribution to $k_{\rm tot}$ / %",
         "viridis",
         ".1f",
@@ -100,10 +90,12 @@ def plot_state_pair_map(
     """One reactant/product state-pair matrix as an annotated heat map.
 
     ``quantity`` picks the matrix, and names the columns
-    ``write_contribution_table`` prints in the examples: ``"contribution"`` (the
-    percentage of the total rate constant each pair carries), ``"overlap"``
-    (``|S_uv|``), ``"free_energy"`` (``Delta G_uv``), or
-    ``"activation_energy"`` (``Delta G^#_uv``).
+    :func:`autopcet.reporting.write_contribution_table` prints:
+    ``"contribution"`` (the percentage of the total rate constant each pair
+    carries), ``"overlap"``, ``"free_energy"`` (``Delta G_uv``), or
+    ``"activation_energy"`` (``Delta G^#_uv``). The one difference is that
+    ``"overlap"`` is drawn here as ``|S_uv|``, which reads better on a linear
+    colour scale, where the table prints ``|S_uv|^2``.
 
     Reactant state ``u`` runs up the vertical axis and product state ``v``
     along the horizontal one, so the bottom left cell is the ground-to-ground

@@ -14,7 +14,13 @@ Importing it costs nothing without matplotlib; the error, naming the
 ``plotting`` extra, comes when a function that needs it is called.
 """
 
-from ._mpl import MATPLOTLIB_HINT, add_legend, prepare_axes, prepare_axes_grid
+from ._mpl import (
+    MATPLOTLIB_HINT,
+    add_legend,
+    figure_of,
+    prepare_axes,
+    prepare_axes_grid,
+)
 from .analysis import (
     plot_crossing,
     plot_diabats_and_adiabats,
@@ -78,6 +84,7 @@ __all__ = [
     "WAVEFUNCTION_SCALE",
     "add_legend",
     "distance_colors",
+    "figure_of",
     "plot_arrhenius",
     "plot_crossing",
     "plot_diabats_and_adiabats",

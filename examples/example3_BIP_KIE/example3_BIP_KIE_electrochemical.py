@@ -1,8 +1,6 @@
 """Electrochemical KIE for a benzimidazole-phenol (BIP) system, integrated over
 the electrode states and thermally averaged over the donor-acceptor distance."""
 
-from typing import TextIO
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -19,19 +17,21 @@ from autopcet import (
     fermi_distribution,
     fit_poly6,
     fit_poly8,
+    write_contribution_table,
 )
 from autopcet.plotting import (
     distance_colors,
+    figure_of,
     plot_potential_family,
     plot_proton_states,
     prepare_axes_grid,
     use_style,
 )
 
-# =========================================================================================
+# ===========================================================
 # Define the thermodynamic parameters, taken from
 # Huynh et. al. ACS Cent. Sci. 2017, 3, 372-380
-# =========================================================================================
+# ===========================================================
 
 # R values sampled in calculations
 distances = np.arange(2.37, 2.92, 0.05)
@@ -53,15 +53,19 @@ ELECTRODE_DOS = 1  # unit in eV^-1
 # which is 0 by definition. We start from 0 and update it per epsilon below.
 REACTION_FREE_ENERGY = 0
 
+# Both example 3 scripts run in this directory, so every file each writes
+# carries its own tag and neither can overwrite the other's results.
+OUTPUT_TAG = "electrochemical"
+
 N_STATES = 20  # how many states to include in the rate constant calculation
 STATES_TO_SHOW = 7  # how many states to plot/print
 
 FORCE_CONSTANT = 0.0443  # effective proton donor-acceptor force constant, a.u.
 EQUILIBRIUM_DISTANCE = 2.58  # equilibrium proton donor-acceptor distance
 
-# =========================================================================================
+# ===========================================================
 # Read data from files
-# =========================================================================================
+# ===========================================================
 
 # rainbow colors for plotting the proton potentials
 colors = distance_colors(len(distances))
@@ -112,35 +116,13 @@ ax1.set_xlabel("")
 ax2.set_xlim(-1, 1)
 ax2.set_ylim(0, 2.2)
 ax2.set_xticks(np.arange(-1.0, 1.5, 0.5))
-ax1.get_figure().savefig("Proton_potentials.png")
+figure_of(ax1).savefig(f"Proton_potentials_{OUTPUT_TAG}.png")
 plt.close("all")
 
-# =========================================================================================
+# ===========================================================
 # Calculate the KIE of electrochemical PCET of BIP at different R and eta = 0
 # The standard rate constant is approximated as the anodic rate constant at eta = 0
-# =========================================================================================
-
-
-def write_contribution_table(stream: TextIO, system: PCET, isotope: str) -> None:
-    """Tabulate how much each pair of vibronic states contributes to the rate."""
-    percentage = 100 * system.rate_contributions / system.total_rate_constant
-
-    stream.write(f"\n{isotope}\n" + "=" * 125 + "\n")
-    stream.write(
-        "(u, v)\t\tP_u\t\t\t|S_uv|^2\t\tDelta G_uv / eV\t\t"
-        "Delta G^#_uv / eV\t% Contrib.\n"
-    )
-    stream.write("-" * 125 + "\n")
-    for u in range(STATES_TO_SHOW):
-        for v in range(STATES_TO_SHOW):
-            stream.write(
-                f"({u:d}, {v:d})\t\t{system.populations[u]:.3e}\t\t"
-                f"{system.overlaps[u, v] ** 2:.3e}\t\t"
-                f"{system.pair_free_energies[u, v]:+.3f}\t\t\t"
-                f"{system.pair_activation_energies[u, v]:.3f}\t\t\t"
-                f"{percentage[u, v]:.1f}\n"
-            )
-    stream.write("=" * 125 + "\n\n")
+# ===========================================================
 
 
 def make_system(index: int) -> PCET:
@@ -199,13 +181,17 @@ for i, distance in enumerate(distances):
         product_axes.set_ylim(0, 1.3)
         product_axes.set_xticks(np.arange(-0.8, 1.2, 0.4))
 
-        reactant_axes.get_figure().savefig(f"Proton_states_H_R{distance:.2f}.png")
+        figure_of(reactant_axes).savefig(
+            f"Proton_states_H_R{distance:.2f}_{OUTPUT_TAG}.png"
+        )
         plt.close("all")
 
-        with open(f"rate_constant_contribution_R{distance:.2f}A.log", "w") as log:
+        with open(
+            f"rate_constant_contribution_R{distance:.2f}A_{OUTPUT_TAG}.log", "w"
+        ) as log:
             log.write(f"\nR = {distance:.2f}A, epsilon = 0, eta = 0\n")
-            write_contribution_table(log, system_h, "H")
-            write_contribution_table(log, system_d, "D")
+            write_contribution_table(log, system_h, label="H", n_states=STATES_TO_SHOW)
+            write_contribution_table(log, system_d, label="D", n_states=STATES_TO_SHOW)
 
     # calculate the anodic rate constant according to Eq. (S2) in the paper
     hole_occupancy = (
@@ -217,14 +203,14 @@ for i, distance in enumerate(distances):
     rates_d[i] = simpson(hole_occupancy * rates_d_of_energy, x=electrode_energies)
 
 # Print PCET rate constants for H and D at each R to a file
-with open("kPCET_data.log", "w") as log:
+with open(f"kPCET_data_{OUTPUT_TAG}.log", "w") as log:
     log.write("# R_PT/A\tk_H/s^-1\tk_D/s^-1\n")
     for distance, rate_h, rate_d in zip(distances, rates_h, rates_d, strict=True):
         log.write(f"{distance:.2f}\t\t{rate_h:.4e}\t{rate_d:.4e}\n")
 
-# =========================================================================================
+# ===========================================================
 # Thermally average the PCET rate constant over R
-# =========================================================================================
+# ===========================================================
 
 # the integration should run from 0 to infinity, but in practice we integrate
 # over the interval where the integrand has reached zero at both limits

@@ -12,7 +12,7 @@ import numpy as np
 
 from .._types import FloatArray, PotentialFunction
 from ..constants import MASS_DEUTERON, MASS_PROTON, ROOM_TEMPERATURE
-from ..rates import PCET
+from ..rates import PCET, _require_solved
 from ._mpl import add_legend, prepare_axes, prepare_axes_grid
 from .style import (
     ENERGY_LABEL,
@@ -27,15 +27,6 @@ from .style import (
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
-
-
-def _require_solved(system: PCET) -> None:
-    """Fail clearly when ``calculate`` has not run and there are no states yet."""
-    if not hasattr(system, "reactant_wavefunctions"):
-        raise ValueError(
-            "This PCET system has no proton states yet. Call "
-            "'system.calculate(...)' before plotting it."
-        )
 
 
 def _zero_point_shifts(system: PCET, align: bool) -> tuple[float, float]:

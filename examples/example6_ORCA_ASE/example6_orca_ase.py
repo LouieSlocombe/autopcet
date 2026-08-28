@@ -32,6 +32,7 @@ import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
+from ase import Atoms
 from ase.calculators.orca import ORCA, OrcaProfile
 from ase.io import read
 
@@ -54,12 +55,22 @@ from autopcet import (
 )
 from autopcet.plotting import (
     PRODUCT_COLOR,
+    figure_of,
     plot_distance_scan,
     plot_isotope_states,
     plot_proton_scan,
     plot_state_pair_map,
     use_style,
 )
+
+
+def read_structure(path: str) -> Atoms:
+    """The single structure in an ASE-readable file."""
+    atoms = read(path)
+    if isinstance(atoms, list):
+        raise SystemExit(f"{path} holds a trajectory; give a single structure.")
+    return atoms
+
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--orca", required=True, help="full path to the ORCA binary")
@@ -110,10 +121,20 @@ product_calc = ORCA(
 #    (what autopcet-scan-da writes Gaussian inputs for)
 distances = np.linspace(args.start, args.stop, args.points)
 reactant_scan = run_da_scan(
-    read(args.reactant), args.donor, args.acceptor, reactant_calc, distances, fix=0
+    read_structure(args.reactant),
+    args.donor,
+    args.acceptor,
+    reactant_calc,
+    distances,
+    fix=0,
 )
 product_scan = run_da_scan(
-    read(args.product), args.donor, args.acceptor, product_calc, distances, fix=1
+    read_structure(args.product),
+    args.donor,
+    args.acceptor,
+    product_calc,
+    distances,
+    fix=1,
 )
 
 equilibrium = int(np.argmin(reactant_scan.energies))
@@ -193,21 +214,21 @@ print(f"KIE = {rate_h / rate_d:.2f}")
 use_style()
 
 scan_axes = plot_distance_scan(reactant_scan)
-scan_axes.get_figure().savefig("Distance_scan.png")
+figure_of(scan_axes).savefig("Distance_scan.png")
 
 # the two diabatic proton potentials, as PCET was handed them
 proton_axes = plot_proton_scan(reactant_potential, label="reactant")
 plot_proton_scan(product_potential, proton_axes, label="product", color=PRODUCT_COLOR)
-proton_axes.get_figure().savefig("Proton_potentials.png")
+figure_of(proton_axes).savefig("Proton_potentials.png")
 
 # the proton and deuteron states behind the KIE printed above
 isotope_axes = plot_isotope_states(system)
-isotope_axes[0].get_figure().savefig("Proton_states_H_D.png")
+figure_of(isotope_axes[0]).savefig("Proton_states_H_D.png")
 
 # which pairs of vibronic states carry the rate constant
 system.calculate(MASS_PROTON, ROOM_TEMPERATURE)
 pair_axes = plot_state_pair_map(system, "contribution", n_states=6)
-pair_axes.get_figure().savefig("State_pair_contributions.png")
+figure_of(pair_axes).savefig("State_pair_contributions.png")
 
 plt.close("all")
 print(
