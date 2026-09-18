@@ -5,6 +5,8 @@ anything needing an ASE ``Atoms`` object, goes through ASE, which the ``ase``
 extra installs.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 

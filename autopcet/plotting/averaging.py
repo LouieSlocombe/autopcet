@@ -6,6 +6,8 @@ by whichever distances make ``P(R) k(R)`` largest. That is usually well inside
 the short-distance tail, where ``k`` is large but ``P`` is already falling.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 import numpy as np

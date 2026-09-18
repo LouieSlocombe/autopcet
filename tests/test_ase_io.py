@@ -6,6 +6,8 @@ its H/O parameters are explicitly flagged as toys, while a Morse potential is
 analytic in every quantity these tests check.
 """
 
+from __future__ import annotations
+
 import sys
 import warnings
 from pathlib import Path

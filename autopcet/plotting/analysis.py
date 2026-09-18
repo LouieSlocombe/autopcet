@@ -7,6 +7,8 @@ EDL model, and the raw energies coming back off a donor-acceptor or proton
 scan.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any
 
 import numpy as np

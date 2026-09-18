@@ -24,6 +24,8 @@ ASE itself is only imported when a function here needs it; install it with the
 ``ase`` extra.
 """
 
+from __future__ import annotations
+
 import json
 import warnings
 from collections.abc import Sequence

@@ -11,6 +11,8 @@ caller passed no axes to draw on. Every function returns the axes it drew on so
 the caller can go on styling and saving them.
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, cast

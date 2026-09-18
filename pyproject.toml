@@ -105,8 +105,13 @@ target-version = "py312"
 
 [tool.ruff.lint]
 # E501 by name rather than the E5 prefix, so the declared line-length is
-# enforced without pulling in whatever else lands under that prefix later
-select = ["B", "E4", "E501", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
+# enforced without pulling in whatever else lands under that prefix later.
+# TC004 by name too: it catches a TYPE_CHECKING-only import used in an
+# annotation Python evaluates eagerly, which raises NameError on 3.12 and 3.13
+# but not on 3.14, where PEP 649 defers annotations. `from __future__ import
+# annotations` is the fix -- moving the import out of the block, as the rule
+# suggests, would make an optional dependency mandatory.
+select = ["B", "E4", "E501", "E7", "E9", "F", "I", "RUF", "SIM", "TC004", "UP"]
 
 [tool.mypy]
 files = ["autopcet", "examples", "tests"]

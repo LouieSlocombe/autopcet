@@ -5,6 +5,8 @@ collapse onto :func:`plot_state_ladder` here, and the two-panel figure examples
 1 to 3 each built by hand onto :func:`plot_proton_states`.
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 

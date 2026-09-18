@@ -5,6 +5,8 @@ temperature_sweep` and :func:`~autopcet.driving_force_sweep` -- so they stay
 usable without matplotlib. These functions take the arrays those return.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 import numpy as np
