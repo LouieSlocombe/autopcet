@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autopcet"
-version = "0.1.0"
+version = "1.0.0"
 description = "Automated proton-coupled electron transfer (PCET) tooling."
 readme = "README.md"
 requires-python = ">=3.14"
