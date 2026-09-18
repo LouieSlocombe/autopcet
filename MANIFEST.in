@@ -1,0 +1,10 @@
+# The tests read fixtures from tests/data, and test_examples.py runs the
+# scripts under examples/ against their committed reference output. Both have
+# to travel with the sdist for its test suite to be runnable.
+include CHANGELOG.md
+
+graft tests
+graft examples
+
+global-exclude *.py[cod]
+prune **/__pycache__

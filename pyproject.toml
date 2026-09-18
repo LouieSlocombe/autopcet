@@ -7,7 +7,7 @@ name = "autopcet"
 version = "1.0.0"
 description = "Automated proton-coupled electron transfer (PCET) tooling."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -15,9 +15,11 @@ authors = [
 ]
 keywords = ["chemistry", "electron-transfer", "pcet", "proton-transfer"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Typing :: Typed",
 ]
@@ -99,7 +101,7 @@ exclude_also = [
 [tool.ruff]
 line-length = 88
 src = ["."]
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.lint]
 # E501 by name rather than the E5 prefix, so the declared line-length is
@@ -108,7 +110,7 @@ select = ["B", "E4", "E501", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
 
 [tool.mypy]
 files = ["autopcet", "examples", "tests"]
-python_version = "3.14"
+python_version = "3.12"
 pretty = true
 show_error_codes = true
 strict = true
