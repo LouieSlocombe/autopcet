@@ -15,7 +15,7 @@ with `autopcet.plotting`, an optional matplotlib layer described under
 
 ## Requirements
 
-- Python 3.14 or newer
+- Python 3.12 or newer
 - pip 25.1 or newer (for dependency groups)
 
 NumPy, SciPy, and Numba are installed automatically as dependencies.
@@ -494,12 +494,6 @@ pre-commit run --all-files
 └── pyproject.toml             # project metadata and tool configuration
 ```
 
-## Next steps
-
-1. Broaden the supported Python versions beyond 3.14 and add them to the CI
-   matrix.
-2. Configure trusted publishing and cut a first PyPI release.
-
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](https://github.com/LouieSlocombe/autopcet/blob/main/LICENSE).
