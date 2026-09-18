@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-18
+
+### Added
+
+- Support for Python 3.12 and 3.13 alongside 3.14. The declared floor moves
+  from `>=3.14` to `>=3.12`, and CI tests all three.
+
+### Fixed
+
+- `import autopcet` raised `NameError` on Python 3.12 and 3.13. Annotations
+  naming an import made only under `if TYPE_CHECKING:` are evaluated eagerly
+  before 3.14, which defers them under PEP 649; every module doing so now
+  carries `from __future__ import annotations`. Moving those imports out of the
+  type-checking block would have made `ase` and `matplotlib` mandatory, so the
+  `TC004` lint rule guards the pattern instead.
+
 ## [1.0.0] - 2026-09-18
 
 First public release.
@@ -36,4 +52,5 @@ First public release.
 - Inline type annotations, exported through `py.typed`.
 - Six worked examples with committed reference output, under `examples/`.
 
+[1.1.0]: https://github.com/LouieSlocombe/autopcet/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/LouieSlocombe/autopcet/releases/tag/v1.0.0
